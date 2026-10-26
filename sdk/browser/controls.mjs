@@ -27,6 +27,17 @@ export function physicalValue(mapping, value) {
 // parameter (an empty slot) belongs to none: null.
 export const controlPositions = parameters => parameters.map((p, i) => p.absent ? null : p.control ?? i);
 
+// The parameters the four positions show after editing parameter `slot`
+// (positions: controlPositions): that position shows it, or on a paged synth
+// (`"press": "page"`) every position shows the edited parameter's page.
+export function editedShown(shown, positions, slot, pages = false) {
+  if (!pages) return shown.map((s, position) => position === positions[slot] ? slot : s);
+  const second = slot >= 4;
+  const next = [...shown];
+  positions.forEach((position, s) => { if ((s >= 4) === second) next[position] = s; });
+  return next;
+}
+
 // The display input (draw.hpp) for the eight parameter words in
 // parameter order, when shown[i] is the parameter position i shows (initially
 // its own; on the device an encoder press selects an alternate, in a preview

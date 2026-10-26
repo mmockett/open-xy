@@ -10,7 +10,7 @@ import unittest
 
 from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, generate_display, generate_screen,
                                generate_synth_controls, screen_bytes)
-from tooling.definitions import ROOT, control_positions, validate_definition
+from tooling.definitions import ROOT, control_positions, paged, validate_definition
 from machine_fixtures import FOLDER, fixture
 from tooling.native import display_ids
 
@@ -117,7 +117,7 @@ class Definitions(unittest.TestCase):
         for key, value in (('stateBytes', 61), ('stateBytes', 0),
                            ('stateAlignment', 3), ('stateAlignment', 8),
                            ('paths', 0), ('paths', 5), ('points', 1), ('points', 65),
-                           ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 5), ('texts', True),
+                           ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 17), ('texts', True),
                            ('palette', 0), ('palette', 17), ('kind', 'drawing')):
             changed = copy.deepcopy(self.engine)
             changed['resources']['display'][key] = value
@@ -215,6 +215,39 @@ class Definitions(unittest.TestCase):
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
         # The table's last field: the absent slots' mask (slots 3 and 4).
         self.assertRegex(text, r'\{gap_engine_id, gap_ready, \{0, 1, 2, 5, 4, 3, 6, 7\}, \d+, gap_format, false, \{[\d, ]+\}, 24\},')
+
+    def test_a_paged_synth_has_one_alternate_per_position(self):
+        value = copy.deepcopy(self.engine)
+        value['parameters'] += [self.alternate(c, 'p%d' % c) for c in (3, 0, 1, 2)]
+        for preset in value['presets'].values():
+            preset.update(p0=0, p1=0, p2=0, p3=0)
+        value['press'] = 'page'
+        validate_definition(value, 'synth')
+        self.assertTrue(paged(value))
+        self.assertEqual(control_cycles(value), [5, 6, 7, 4, 3, 0, 1, 2])
+        self.assertFalse(paged(self.engine))
+        rejected = []
+        for bad in ('next', True, None):
+            changed = copy.deepcopy(value); changed['press'] = bad
+            rejected.append(changed)
+        short = copy.deepcopy(value); del short['parameters'][-1]
+        for preset in short['presets'].values(): del preset['p2']
+        rejected.append(short)
+        twice = copy.deepcopy(value); twice['parameters'][-1]['control'] = 3
+        rejected.append(twice)
+        for bad in rejected:
+            with self.subTest(press=bad['press'], count=len(bad['parameters'])), self.assertRaises(ValueError):
+                validate_definition(bad, 'synth')
+        sample = copy.deepcopy(fixture('probesample').definition)
+        sample['press'] = 'page'
+        with self.assertRaisesRegex(ValueError, 'press'): validate_definition(sample, 'sample')
+        # The control table marks the paged synth's row.
+        machines = [SimpleNamespace(kind='synth', prefix='paged', identity=dict(engine=9), definition=value),
+                    SimpleNamespace(kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine)]
+        with tempfile.TemporaryDirectory() as directory:
+            text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
+        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false)\},$', text, re.M),
+                         [('paged', 'true'), ('plain', 'false')])
 
     def test_control_table_owns_all_synths_and_preserves_alternates(self):
         alternates = copy.deepcopy(self.engine)

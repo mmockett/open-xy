@@ -6,7 +6,8 @@
 namespace opxy { namespace platform {
 // A synth or effect. Pressing a synth encoder moves its
 // position from slot s to next[s]; each position starts on its own slot 0..3,
-// and a slot no position reaches maps to itself. In a browser kit an
+// and a slot no position reaches maps to itself. A paged synth's press moves
+// all four positions, switching between its two pages. In a browser kit an
 // unselected machine's ready resolves to a function returning 0. `choices`
 // counts each enum control's labels (0 for the others).
 struct SynthControls {
@@ -18,6 +19,7 @@ struct SynthControls {
     bool effect;
     u8 choices[parameter_slots];
     u8 absent;  // bit s: slot s is an empty placeholder, shown blank and never edited
+    bool page;
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
 };
 // GUI-only, bounded one-decimal formatting. Caller provides 16 bytes.

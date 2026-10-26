@@ -147,6 +147,15 @@ nothing; a machine's display can blank its value with header text `" "`. See
 [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/definition.json), whose fourth encoder
 switches between FM ratio and depth.
 
+A synth with five to eight parameters, each position with at most one
+alternate, may declare `"press": "page"` at the top of `definition.json` (SDK 1.3): its four
+own parameters are page 1, its alternates page 2, and pressing any encoder
+switches all four positions to the other page. `shown` tells the display
+which page is up. Browser previews show the page of the parameter last
+edited. See
+[Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/definition.json),
+whose header shows one page and whose row of text slots under it the other.
+
 On instrument tracks, the Value, Random and Element LFOs can target every
 declared parameter of a custom synth or sample engine, including all eight
 when present. Destination names follow parameter order regardless of which

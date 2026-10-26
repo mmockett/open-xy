@@ -67,7 +67,9 @@ RESOURCES = {
 # A synth's own screen: one drawing contract (opxy/draw.hpp); the machine
 # declares its frame's budget within these limits.
 DISPLAY_FIELDS = ('stateBytes', 'stateAlignment', 'paths', 'points', 'nodes', 'texts', 'palette')
-DISPLAY_LIMITS = dict(paths=(0, 4), points=(0, 64), nodes=(1, 256), texts=(0, 4), palette=(1, 16))
+DISPLAY_LIMITS = dict(paths=(0, 4), points=(0, 64), nodes=(1, 256), texts=(0, 16), palette=(1, 16))
+# Up to this many text slots need SDK 1.3's sixteen (tooling.machines).
+SDK_1_2_TEXTS = 4
 # Analysis storage is allocated from the stock heap at runtime, which also holds
 # stock samples; a collection's analysis budgets together take at most this much.
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
@@ -99,8 +101,14 @@ def control_positions(definition):
     return [None if parameter.get('absent') else parameter.get('control', i) for i, parameter in enumerate(definition['parameters'])]
 
 
+def paged(definition):
+    """Whether a press switches the synth's whole page (`"press": "page"`, SDK 1.3)."""
+    return definition.get('press') == 'page'
+
+
 def validate_definition(value, kind):
-    keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources'), 'definition')
+    keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources', *(('press',) if 'press' in value else ())),
+         'definition')
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
     stock_name(value['id']); label(value['name'])
     resources = value['resources']
@@ -151,6 +159,14 @@ def validate_definition(value, kind):
     if kind == 'drum':
         require(sorted(p['control'] for p in parameters[4:]) == [0, 1, 2, 3],
                 'A drum kit has one alternate per encoder')
+    # A paged synth's parameters are two pages of four: each position has at
+    # most one alternate, and a press of any encoder switches all four. A
+    # position without one shows its own parameter on both pages.
+    if 'press' in value:
+        alternates = [p for p in control_positions(value)[SYNTH_POSITIONS:] if p is not None]
+        require(kind == 'synth' and value['press'] == 'page' and alternates and
+                len(set(alternates)) == len(alternates),
+                '"press": "page" is for a synth with five to eight parameters: each position has at most one alternate')
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     present = {p['id'] for p in parameters if not p.get('absent')}
     for name, preset in value['presets'].items():

@@ -89,6 +89,18 @@ class CustomPreviewTests(unittest.TestCase):
         bad = panel_root(f'<g><path id="local_node_0" d="{repeated}" fill="none"/></g>'.encode(), 'test')
         with self.assertRaisesRegex(ValueError, 'repeats a point; the device merges repeated points'):
             check_outlines({n.get('id'): n for n in bad.iter() if n.get('id')}, 'local', display)
+        # Text slots are placed by their transform, never x or y.
+        from tooling.native import check_bindings
+        display = {'paths': 0, 'nodes': 1, 'texts': 1, 'palette': 1, 'points': 0}
+        for text, error in (('<text id="local_text_0" transform="matrix(1 0 0 1 5 34)">bits</text>', None),
+                            ('<text id="local_text_0" x="5" y="34">bits</text>', 'positioned by their transform')):
+            root = panel_root(f'<g><circle id="local_node_0"/>{text}</g>'.encode(), 'test')
+            nodes = {n.get('id'): n for n in root.iter() if n.get('id')}
+            with self.subTest(text=text):
+                if error is None:
+                    self.assertEqual(check_bindings(nodes, 'local', display), ['local_palette_0'])
+                else:
+                    with self.assertRaisesRegex(ValueError, error): check_bindings(nodes, 'local', display)
 
     def test_tampered_artwork_is_rejected(self):
         out, _ = self.fixture()

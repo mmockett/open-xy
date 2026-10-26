@@ -12,7 +12,7 @@ import json
 import math
 from pathlib import Path
 
-from .definitions import ROOT, control_positions, validate_definition
+from .definitions import ROOT, control_positions, paged, validate_definition
 from .formats import require
 from .stock_tables import REGISTRATION as RELOCATED
 
@@ -366,7 +366,9 @@ def generate_synth_controls(directory, machines):
                              '        return true;'])
         body.extend(['    default: return false;', '    }', '}'])
         formatters.append('\n'.join(body))
-        rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, {m.prefix}_format, {'true' if effect else 'false'}, {{{', '.join(map(str, choices))}}}, {absent}}},")
+        page = not effect and paged(m.definition)
+        rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, {m.prefix}_format, "
+                    f"{'true' if effect else 'false'}, {{{', '.join(map(str, choices))}}}, {absent}, {'true' if page else 'false'}}},")
     return expand('synth_control_table.cpp.in', dict(READY_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows), FORMATTERS='\n'.join(formatters), LFO_MACHINES='\n'.join(lfo_rows)),
                   Path(directory) / 'synth_control_table.cpp')
 
