@@ -166,10 +166,13 @@ fragment with the SDK-owned
 [OP-XY screen template](../sdk/platform/opxy-1.2.0/screen.svg). It supplies a black
 480 × 220 canvas and the stock synth header: a stepped grey bar 20 pixels tall
 with four titles (10 px) above four values (20 px), light text on the dark half
-and dark text on the light half, at the stock positions. Machine artwork starts
-below y = 20. No stock artwork is copied. Machine graphics below that header
+and dark text on the light half, at the stock positions. Machine artwork usually
+starts below y = 20. No stock artwork is copied. Machine graphics below that header
 are controlled by `display.cpp`; the platform adapter updates parameter labels
-and values.
+and values. The machine's artwork is drawn after the template, so artwork that
+covers the top 20 pixels hides the stock header: a machine can draw its own
+header there with nodes and text slots. The browser previews draw the stock
+header under the artwork in the same way.
 
 The template's `titles` and `values` groups each contain four group children,
 each with one explicitly styled text leaf. This is the stock four-knob helper's

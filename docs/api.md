@@ -156,7 +156,8 @@ tells the display which page is up; read it at a position that has an
 alternate. Browser previews show the page of the parameter last
 edited. See
 [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/definition.json),
-whose header shows one page and whose row of text slots under it the other.
+which draws its own header: both pages in two rows, the page the encoders edit
+large and bright and the other small and grey.
 
 On instrument tracks, the Value, Random and Element LFOs can target every
 declared parameter of a custom synth or sample engine, including all eight

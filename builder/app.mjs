@@ -247,9 +247,10 @@ async function inspect(id) {
       const renderer = new Retained.SvgDisplay(m.artwork, m.preview.graphics);
       const ns = 'http://www.w3.org/2000/svg', canvas = document.createElementNS(ns, 'svg');
       canvas.setAttribute('viewBox', '0 0 480 220'); canvas.setAttribute('aria-label', m.name + ' display preview');
-      // The device page: the machine's drawing under the stock four-control header.
+      // The device page: the stock four-control header under the machine's drawing,
+      // which can cover it, as on the device.
       const header = document.createElementNS(ns, 'g');
-      canvas.append(renderer.root, header); $('art-preview').replaceChildren(canvas);
+      canvas.append(header, renderer.root); $('art-preview').replaceChildren(canvas);
       // Eight parameter words; each control position shows the parameter last edited there.
       const parameters = Object.assign(Array(8).fill(0), m.preview.defaults), shown = [0, 1, 2, 3];
       let serial = 0, previous = 0, handle, cancelled = false;
