@@ -29,9 +29,12 @@ export const controlPositions = parameters => parameters.map((p, i) => p.absent 
 
 // The parameters the four positions show after editing parameter `slot`
 // (positions: controlPositions): that position shows it, or on a paged synth
-// (`"press": "page"`) every position shows the edited parameter's page.
+// (`"press": "page"`) every position shows the edited parameter's page. A
+// position without an alternate shows its parameter on both pages, so
+// editing it keeps the page.
 export function editedShown(shown, positions, slot, pages = false) {
   if (!pages) return shown.map((s, position) => position === positions[slot] ? slot : s);
+  if (slot < 4 && !positions.slice(4).includes(slot)) return [...shown];
   const second = slot >= 4;
   const next = [...shown];
   positions.forEach((position, s) => { if ((s >= 4) === second) next[position] = s; });

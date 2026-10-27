@@ -214,9 +214,9 @@ class Definitions(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
         # The table's last field: the absent slots' mask (slots 3 and 4).
-        self.assertRegex(text, r'\{gap_engine_id, gap_ready, \{0, 1, 2, 5, 4, 3, 6, 7\}, \d+, gap_format, false, \{[\d, ]+\}, 24\},')
+        self.assertRegex(text, r'\{gap_engine_id, gap_ready, \{0, 1, 2, 5, 4, 3, 6, 7\}, \d+, gap_format, false, \{[\d, ]+\}, 24, false\},')
 
-    def test_a_paged_synth_has_one_alternate_per_position(self):
+    def test_a_paged_synth_has_at_most_one_alternate_per_position(self):
         value = copy.deepcopy(self.engine)
         value['parameters'] += [self.alternate(c, 'p%d' % c) for c in (3, 0, 1, 2)]
         for preset in value['presets'].values():
@@ -230,9 +230,13 @@ class Definitions(unittest.TestCase):
         for bad in ('next', True, None):
             changed = copy.deepcopy(value); changed['press'] = bad
             rejected.append(changed)
+        # Fewer alternates: a position without one keeps its own parameter on both pages.
         short = copy.deepcopy(value); del short['parameters'][-1]
         for preset in short['presets'].values(): del preset['p2']
-        rejected.append(short)
+        validate_definition(short, 'synth')
+        self.assertEqual(control_cycles(short), [5, 6, 2, 4, 3, 0, 1, 7])
+        plain = copy.deepcopy(self.engine); plain['press'] = 'page'
+        rejected.append(plain)
         twice = copy.deepcopy(value); twice['parameters'][-1]['control'] = 3
         rejected.append(twice)
         for bad in rejected:

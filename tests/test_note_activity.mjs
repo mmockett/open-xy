@@ -103,4 +103,9 @@ test('an edit shows its parameter at its position, or its whole page on a paged 
   assert.deepEqual(editedShown([0, 1, 2, 3], positions, 4), [0, 1, 2, 4]);
   assert.deepEqual(editedShown([0, 1, 2, 3], positions, 6, true), [5, 6, 7, 4]);
   assert.deepEqual(editedShown([5, 6, 7, 4], positions, 1, true), [0, 1, 2, 3]);
+  // Drone's shape: position 0 has no alternate and shows its own parameter on both pages.
+  const partial = [0, 1, 2, 3, 1, 2, 3];
+  assert.deepEqual(editedShown([0, 1, 2, 3], partial, 5, true), [0, 4, 5, 6]);
+  assert.deepEqual(editedShown([0, 4, 5, 6], partial, 0, true), [0, 4, 5, 6]);
+  assert.deepEqual(editedShown([0, 4, 5, 6], partial, 2, true), [0, 1, 2, 3]);
 });
