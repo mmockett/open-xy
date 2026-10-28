@@ -216,6 +216,24 @@ class Definitions(unittest.TestCase):
         # The table's last field: the absent slots' mask (slots 3 and 4).
         self.assertRegex(text, r'\{gap_engine_id, gap_ready, \{0, 1, 2, 5, 4, 3, 6, 7\}, \d+, gap_format, false, \{[\d, ]+\}, 24, false\},')
 
+    def test_a_paged_synth_can_blank_a_position_on_its_second_page(self):
+        # Slots: the engine's four, then page 2: a real alternate on 0, an absent one on 1.
+        value = copy.deepcopy(self.engine)
+        blank = dict(self.absent('none5'), control=1)
+        value['parameters'] += [self.alternate(0, 'p0'), blank]
+        for preset in value['presets'].values():
+            preset.update(p0=0)
+        value['press'] = 'page'
+        validate_definition(value, 'synth')
+        self.assertEqual(control_positions(value), [0, 1, 2, 3, 0, 1])
+        # Position 1's press reaches the empty slot, whose turns do nothing on the device.
+        self.assertEqual(control_cycles(value), [4, 5, 2, 3, 0, 1, 6, 7])
+        unpaged = copy.deepcopy(value); del unpaged['press']
+        early = copy.deepcopy(value); early['parameters'][3] = dict(self.absent('none3'), control=3)
+        for bad in (unpaged, early):
+            with self.subTest(press=bad.get('press')), self.assertRaises(ValueError):
+                validate_definition(bad, 'synth')
+
     def test_a_paged_synth_has_at_most_one_alternate_per_position(self):
         value = copy.deepcopy(self.engine)
         value['parameters'] += [self.alternate(c, 'p%d' % c) for c in (3, 0, 1, 2)]

@@ -143,7 +143,10 @@ A synth may leave a slot empty yet keep later parameters at their indices
 with no `control` and no preset entry. It belongs to no position, so no press
 selects it; an empty own slot still starts its position's cycle, so the press
 reaches the position's alternates. Its title is empty and a turn on it changes
-nothing; a machine's display can blank its value with header text `" "`. See
+nothing; a machine's display can blank its value with header text `" "`. A
+paged synth (below) may give an absent slot after the first four a `control`:
+that position's second page is then the empty slot, blank and inert, rather
+than its first-page parameter again. See
 [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/definition.json), whose fourth encoder
 switches between FM ratio and depth.
 

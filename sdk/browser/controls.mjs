@@ -24,8 +24,9 @@ export function physicalValue(mapping, value) {
 // A synth's page position (encoder) for each parameter, in parameter order:
 // the first four are the positions' own, later ones name theirs in `control`
 // (the definition schema; tooling.definitions.control_positions). An absent
-// parameter (an empty slot) belongs to none: null.
-export const controlPositions = parameters => parameters.map((p, i) => p.absent ? null : p.control ?? i);
+// parameter (an empty slot) belongs to none, null, unless a paged synth puts it
+// on a position's second page.
+export const controlPositions = parameters => parameters.map((p, i) => p.absent ? p.control ?? null : p.control ?? i);
 
 // The parameters the four positions show after editing parameter `slot`
 // (positions: controlPositions): that position shows it, or on a paged synth

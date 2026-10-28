@@ -96,9 +96,11 @@ def control_positions(definition):
     The first four parameters are the positions' own; each later one names the
     position it alternates on with `control`. Pressing an encoder cycles its
     position through its own parameter, then its alternates in parameter order.
-    An absent parameter (an empty slot) belongs to no position: None.
+    An absent parameter (an empty slot) belongs to no position, None, unless a
+    paged synth puts it on one's second page with `control`.
     """
-    return [None if parameter.get('absent') else parameter.get('control', i) for i, parameter in enumerate(definition['parameters'])]
+    return [parameter.get('control') if parameter.get('absent') else parameter.get('control', i)
+            for i, parameter in enumerate(definition['parameters'])]
 
 
 def paged(definition):
@@ -162,6 +164,8 @@ def validate_definition(value, kind):
     # A paged synth's parameters are two pages of four: each position has at
     # most one alternate, and a press of any encoder switches all four. A
     # position without one shows its own parameter on both pages.
+    require('press' in value or not any(p.get('absent') and 'control' in p for p in parameters),
+            'Only a paged synth puts an absent slot on a position')
     if 'press' in value:
         alternates = [p for p in control_positions(value)[SYNTH_POSITIONS:] if p is not None]
         require(kind == 'synth' and value['press'] == 'page' and alternates and
@@ -206,8 +210,12 @@ def validate_display(display):
 def validate_parameter(parameter, alternate=False):
     if isinstance(parameter, dict) and parameter.get('absent') is not None:
         # An empty slot that keeps later parameters at their indices: no label, no
-        # position, no presets; its encoder shows nothing and turns nothing.
-        keys(parameter, ('id', 'label', 'default', 'mapping', 'display', 'absent'), 'absent parameter')
+        # position, no presets; its encoder shows nothing and turns nothing. A
+        # paged synth's may name the position whose second page it blanks.
+        keys(parameter, ('id', 'label', 'default', 'mapping', 'display', 'absent', *(('control',) if alternate and 'control' in parameter else ())),
+             'absent parameter')
+        if 'control' in parameter:
+            require(type(parameter['control']) is int and 0 <= parameter['control'] < 4, 'Invalid control position')
         require(parameter['absent'] is True and parameter['label'] == '' and parameter['default'] == 0 and
                 parameter['mapping'] == {'kind': 'linear', 'minimum': 0, 'maximum': 1} and parameter['display'] == 'percent',
                 'An absent parameter is {"absent": true, "label": "", "default": 0, linear 0..1, percent}')
