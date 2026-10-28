@@ -34,10 +34,11 @@ export const controlPositions = parameters => parameters.map((p, i) => p.absent 
 // editing it keeps the page.
 export function editedShown(shown, positions, slot, pages = false) {
   if (!pages) return shown.map((s, position) => position === positions[slot] ? slot : s);
-  if (slot < 4 && !positions.slice(4).includes(slot)) return [...shown];
-  const second = slot >= 4;
-  const next = [...shown];
-  positions.forEach((position, s) => { if ((s >= 4) === second) next[position] = s; });
+  // Turning that repeated control must not jump back to page 1.
+  const shared = slot < 4 && !positions.slice(4).includes(slot);
+  const second = shared ? shown.some(s => s >= 4) : slot >= 4;
+  const next = [0, 1, 2, 3];
+  positions.forEach((position, s) => { if (position !== null && (s >= 4) === second) next[position] = s; });
   return next;
 }
 

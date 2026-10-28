@@ -143,6 +143,45 @@ reaches more than 160 pixels left and more than 100 pixels up from its origin.
 of upright (at most 1800). `text` and `header` copy bounded strings. `valid`
 checks the complete frame before painting; an invalid frame is not applied.
 
+## Two-page header
+
+SDK 1.4 supplies `<opxy/page_header.hpp>` for synths using `"press": "page"`.
+`sdk.py new` generates it with eight controls; `--controls 5`, `6` or `7`
+shares unchanged controls between the rows. `--controls 4` keeps the stock
+header. This helper uses the existing drawing ABI and the [UX layout](ux.md#more-than-four-controls).
+
+Store `opxy::draw::PageHeader` in `DisplayState` and call its `reset()` from
+`display_reset`. It occupies 20 bytes with four-byte alignment. Reserve eight
+consecutive bar nodes and all sixteen text slots; keep the authored header
+block from the generated `panel.svg.fragment`. That block includes the stock
+header cover, stepped bar and bright/grey text at their resting sizes. If
+moving its node bindings, update both the artwork IDs and `first_node` below.
+Keep other artwork below y=38 and do not cover the header later in the SVG.
+
+```cpp
+const char* const titles[8] = {"wave", "shape", "level", "tone",
+                               "drift", "noise", "", ""};
+// Six controls: columns 2 and 3 repeat their original controls on page 2.
+const opxy::u8 pages[2][4] = {{0, 1, 2, 3}, {4, 5, 2, 3}};
+char values[8][opxy::draw::header_capacity] = {};
+for (opxy::u32 i = 0; i < 6; ++i)
+    opxy::draw::header_amount(values[i], sizeof(values[i]), input.slots[i]);
+opxy::draw::page_header(state.header, input, frame, titles, values, first_node, pages);
+```
+
+Titles and captions are indexed by saved parameter slot. Supply lowercase
+real-unit captions for enums, frequencies, ratios and other mapped controls;
+`header_amount` rounds Q31 amounts to 0..100 without a percent sign. Titles
+are lowercased by the helper. The page map must match each alternate's
+`control` assignment; omit it only for slots 4..7 in column order. Shared
+columns repeat the original slot index, so labels, values and edits agree.
+
+Rows keep their order while the active row grows and brightens. Transitions
+settle within 0.15 seconds and reverse continuously on a second press.
+Initialization, track changes and reduced motion snap to the selected page.
+The helper reads every `shown` position, including layouts whose first
+column is shared. It does not touch the machine's audio or parameter state.
+
 ## Artwork
 
 Elements bind by index and the machine's symbol prefix:

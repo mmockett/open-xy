@@ -12,8 +12,8 @@ is the reference for each of them.
 - **Defaults are clean.** A new sound starts at the machine's plainest useful
   setting. A control that colours or degrades the sound (crush, drift,
   modulation depth) defaults to off.
-- **Real units in the header.** A [header value](display.md#frame) shows what
-  the musician thinks in: `2.0` for a ratio, `16` for bits, `11k` for a rate,
+- **Real units in the header.** A [header value](display.md#frame), or the
+  machine's own header text when it draws one, shows what the musician thinks in: `2.0` for a ratio, `16` for bits, `11k` for a rate,
   a model's short code. Amounts are 0 to 100 without a percent sign. Keep it
   to about five characters.
 - **Short labels.** One or two words, at most eight characters; the stock
@@ -27,18 +27,25 @@ is the reference for each of them.
 ## More than four controls
 
 - **Two pages.** A synth with five to eight parameters uses
-  [`"press": "page"`](api.md#alternate-controls) with all eight: page 1 holds
+  [`"press": "page"`](api.md#alternate-controls): page 1 holds
   what is played most, page 2 the rest. A press of any encoder switches all
-  four, so a press means the same thing everywhere.
+  four, so a press means the same thing everywhere. If a position has no
+  alternate, repeat its first-page control in the second row; both edit the
+  same saved parameter. Do not add filler parameters to reach eight.
+- **Use the shared header.** New synths with five to eight controls use
+  [`opxy/page_header.hpp`](display.md#two-page-header), already wired up by
+  `sdk.py new`. `--controls 5..8` chooses the count (eight by default). Macro
+  Osc remains the visual reference.
 - **Show both pages in place.** Page 1 stays on top and page 2 under it; a
   press does not swap them. The page the encoders edit is the stock header's
   size and sits on the stepped bar; the other is smaller and grey. Cover the
-  stock header ([artwork](display.md#artwork)) and draw
-  both rows yourself, with sixteen [text slots](display.md#frame) on the
-  header's columns (titles at x `5 + 120 i`, values at `65 + 120 i`): a bright
-  set that follows the page being edited and a grey set that follows the
-  other, since a text slot keeps its authored fill. With page 1 up, the rows
-  are:
+  stock header ([artwork](display.md#artwork)), which hides its bar too, and
+  draw the header yourself: the bar's eight 60 × 20 px steps as nodes, and
+  sixteen [text slots](display.md#frame) (`"sdk": "1.3"`) on the header's
+  columns, titles at x `5 + 120 i` and values at `65 + 120 i`. A text slot
+  keeps its authored fill, so use a bright set that follows the page being
+  edited and a grey set that follows the other. This takes every text slot.
+  With page 1 up, the rows are:
 
   | | Page 1 (edited) | Page 2 (grey) |
   | --- | --- | --- |
@@ -47,9 +54,9 @@ is the reference for each of them.
   | Value baseline, size | 17.4 px, 20 px | 33 px, 13 px |
   | Fill | stock: `#CBCBCB` on the dark half, `#000000` on the light | `#5A5A5A` titles, `#707070` values |
 
-  With page 2 up, page 1 shrinks to a grey row with baselines at 13 px and
-  page 2 grows into the bar, moved down to 18 to 38 px. Keep the rest of the
-  artwork below about 38 px.
+  With page 2 up, page 1 shrinks to a grey row with both baselines at 13 px,
+  and page 2 grows into the bar, moved down to 18 to 38 px: titles at 28 px
+  and values at 35.4 px. Keep the rest of the artwork below about 38 px.
 - **Author text at its resting size.** Scaling a text slot is decoration for
   a moment of motion: a layout must read correctly at unit scale.
 
