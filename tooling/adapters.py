@@ -367,13 +367,9 @@ def generate_synth_controls(directory, machines):
                              '        return true;'])
         body.extend(['    default: return false;', '    }', '}'])
         formatters.append('\n'.join(body))
-<<<<<<< HEAD
-        page = not effect and paged(m.definition)
+        page = own_screen and count > 4 or (m.kind == 'synth' and paged(m.definition))
         # An aux module's macro target words; other rows leave the fields zero.
         aux = f", {{{aux_targets(m.definition)}}}, true" if aux_module(m.definition) else ''
-=======
-        page = own_screen and count > 4 or (m.kind == 'synth' and paged(m.definition))
->>>>>>> sample-overview
         rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, "
                     f"{{{', '.join(map(str, steps))}}}, {m.prefix}_format, "
                     f"{'true' if effect else 'false'}, {'true' if page else 'false'}{aux}}},")
