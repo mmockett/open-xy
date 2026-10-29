@@ -14,7 +14,7 @@ def _declare(name, signature='()'):
     return f'int {name}{signature} __asm__("{name}");'
 
 
-def render(prefixes, effects=(), stock_page=(), sample_screens=(), aux=()):
+def render(prefixes, effects=(), stock_page=(), aux=(), sample_screens=()):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     sample_screens: those of them that also draw their own screen over it.
@@ -66,7 +66,7 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), aux=()):
     return source
 
 
-def generate(directory, prefixes, effects=(), stock_page=(), sample_screens=(), aux=()):
+def generate(directory, prefixes, effects=(), stock_page=(), aux=(), sample_screens=()):
     destination = Path(directory) / 'startup.cpp'
-    destination.write_text(render(prefixes, effects, stock_page, sample_screens, aux), encoding='utf-8', newline='\n')
+    destination.write_text(render(prefixes, effects, stock_page, aux, sample_screens), encoding='utf-8', newline='\n')
     return destination
