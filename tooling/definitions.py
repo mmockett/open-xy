@@ -88,6 +88,11 @@ CONTROLS = {'synth': (4, 8), 'sample': (1, 8), 'effect': (1, 8)}
 # Stock voice indices: a voice object for each, 0..255.
 STOCK_VOICES = 256
 SYNTH_POSITIONS = 4
+# An aux module (SDK 1.5): a four-control synth that declares "aux" goes on aux
+# tracks 1..6 instead of instrument tracks (docs/api.md#aux-modules). Its
+# "macro" names, per control, the instrument-track parameter it sets on tracks
+# 1..8, or null: stock's track parameter words, by their page and position.
+AUX_MACRO_TARGETS = {'attack': 8, 'decay': 9, 'sustain': 10, 'release': 11, 'cutoff': 16, 'resonance': 17}
 
 
 def control_positions(definition):
@@ -107,8 +112,8 @@ def paged(definition):
 
 
 def validate_definition(value, kind):
-    keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources', *(('press',) if 'press' in value else ())),
-         'definition')
+    keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources',
+                 *(k for k in ('press', 'aux') if k in value)), 'definition')
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
     stock_name(value['id']); label(value['name'])
     resources = value['resources']
@@ -158,11 +163,29 @@ def validate_definition(value, kind):
         require(kind == 'synth' and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
                 len(set(alternates)) == len(alternates),
                 '"press": "page" needs five to eight synth parameters and at most one alternate per position')
+    if 'aux' in value:
+        validate_aux(value['aux'], kind, parameters, value.get('press'))
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     for name, preset in value['presets'].items():
         label(name); keys(preset, names, 'preset')
         for default in preset.values(): number(default, 0, 1, 'preset value')
     return value
+
+
+def validate_aux(aux, kind, parameters, press):
+    # An aux track's page shows four controls, stored in the track's words 4..7.
+    require(kind == 'synth' and len(parameters) == SYNTH_POSITIONS and press is None,
+            'An aux module is a synth with exactly four controls')
+    require(isinstance(aux, dict) and set(aux) <= {'macro'}, 'Unexpected aux fields')
+    macro = aux.get('macro', [None] * SYNTH_POSITIONS)
+    require(isinstance(macro, list) and len(macro) == SYNTH_POSITIONS and
+            all(t is None or t in AUX_MACRO_TARGETS for t in macro),
+            'aux.macro names, per control, null or one of ' + ', '.join(AUX_MACRO_TARGETS))
+
+
+def aux_module(definition):
+    """Whether the machine is an aux module (SDK 1.5)."""
+    return 'aux' in definition
 
 
 def validate_synth_resources(resources):

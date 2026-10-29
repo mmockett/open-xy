@@ -1,5 +1,6 @@
 """Public tests use synthetic containers; private integration fixtures are opt-in."""
 import copy
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -89,10 +90,17 @@ class Services(unittest.TestCase):
         machines = [fixture(name) for name in NAMES]  # every kind, as a full collection holds
         self.assertTrue(any(m.kind == 'sample' for m in machines))
         steps = lambda selection: [step for _name, m, step in native.plan(selection) if m is None]
-        self.assertEqual(steps(machines), list(native.SDK_UNITS))  # full collections keep the link order
+        # An aux module is a synth that declares "aux" (SDK 1.5).
+        synth = fixture('probesources')
+        aux = dataclasses.replace(synth, definition={**synth.definition, 'aux': {}})
+        self.assertEqual(active_services(profile, native.machine_uses([aux])), {'aux'})
+        with_aux = [aux if m.id == synth.id else m for m in machines]
+        self.assertEqual(steps(with_aux), list(native.SDK_UNITS))  # full collections keep the link order
+        self.assertEqual(steps(machines), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) != 'aux'])
         without = [m for m in machines if m.kind != 'sample']
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
         self.assertEqual(set(native.object_services(machines).values()), {'samples'})
+        self.assertEqual(set(native.object_services(with_aux).values()), {'samples', 'aux'})
         self.assertEqual(native.object_services(without), {})
 
     def test_only_a_service_edit_may_stay_stock(self):

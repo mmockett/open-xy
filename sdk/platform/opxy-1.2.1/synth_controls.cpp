@@ -31,13 +31,7 @@ const u32 kSendTracks = 14;  // send tracks 14 and 15
 // The controller on top of the GUI stack, which receives key events.
 u32 top_controller_vtable() { return *stock<const u32*()>(0x8c0944b0)(); }
 
-const SynthControls* owned(u32 engine, bool effect = false) {
-    for (u32 i = 0; i < sdk_synth_control_count; ++i) {
-        const SynthControls& m = sdk_synth_controls[i];
-        if (m.engine() == engine && m.effect == effect) return m.ready() == 1 ? &m : nullptr;
-    }
-    return nullptr;
-}
+const SynthControls* owned(u32 engine, bool effect = false) { return sdk_synth_controls_of(engine, effect); }
 
 // The slot each position shows, per track, while the track keeps an owned
 // engine. Engine 0 is never a synth, so zeroed state starts on slots 0..3.
@@ -107,6 +101,17 @@ u32 shown(u32 track, u32 position) {
     Track* t;
     return position < opxy::page_controls && machine(track, t) ? t->slots[position] : position;
 }
+}
+
+u32 sdk_aux_engines[6];
+void (*sdk_aux_tick)();
+
+const SynthControls* sdk_synth_controls_of(u32 engine, bool effect) {
+    for (u32 i = 0; i < sdk_synth_control_count; ++i) {
+        const SynthControls& m = sdk_synth_controls[i];
+        if (m.engine() == engine && m.effect == effect) return m.ready() == 1 ? &m : nullptr;
+    }
+    return nullptr;
 }
 
 void sdk_synth_shown(u32 track, u8* slots) {
@@ -253,6 +258,7 @@ bool sdk_synth_value(u32 track, u32 slot, opxy::i32 value, char* text) {
 // every edit. Only then: a parameter lock may later move a current value away
 // from the stored one on purpose.
 void sdk_send_refresh() {
+    if (sdk_aux_tick) sdk_aux_tick();
     for (u32 s = 0; s < 2; ++s) {
         Track* t;
         const u32 track = kSendTracks + s;

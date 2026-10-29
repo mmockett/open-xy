@@ -93,6 +93,9 @@
   "services": {
     "samples": [
       "sample"
+    ],
+    "aux": [
+      "aux"
     ]
   },
   "patches": [
@@ -792,6 +795,39 @@
       "length": 8,
       "before": "00de5a8dbcd50000",
       "symbol": "sdk_effect_turn",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Aux modules: an aux track shows its module on M1",
+      "address": "0x8c08f540",
+      "file_offset": "0xc677c",
+      "length": 8,
+      "before": "09da0a8434050000",
+      "symbol": "sdk_aux_screen_hook",
+      "service": "aux",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Aux modules: M1's encoders edit the module's controls",
+      "address": "0x8c08fa14",
+      "file_offset": "0xc6c50",
+      "length": 8,
+      "before": "0dda0a8434050000",
+      "symbol": "sdk_aux_turn_hook",
+      "service": "aux",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Aux modules: Shift and an aux track key choose its module",
+      "address": "0x8c08f624",
+      "file_offset": "0xc6860",
+      "length": 8,
+      "before": "a66c200501e80000",
+      "symbol": "sdk_aux_select_hook",
+      "service": "aux",
       "call": true
     },
     {

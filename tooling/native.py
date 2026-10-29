@@ -19,11 +19,12 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import benchmark, screen, startup_label, stock_tables
-from .adapters import (catalog_entry, generate_display, generate_fx_object, generate_registration,
-                       generate_registration_stock, generate_sample_voice,
+from .adapters import (catalog_entry, generate_aux_modules, generate_display, generate_fx_object,
+                       generate_registration, generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
                        generate_synth_controls, generate_project_companion_table, generate_voice)
 from .contributors import validate_source_boundary
+from .definitions import aux_module
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, tree
@@ -162,7 +163,7 @@ def plan(machines, profile=None):
         else:
             steps = ('registration', 'sample_voice')
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
-    services = active_services(profile or config(), (m.kind for m in machines))
+    services = active_services(profile or config(), machine_uses(machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
     names = [name for name, _m, _step in units]
@@ -177,12 +178,27 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
-             'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser')
+             'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
+             'aux_modules', 'aux_module_table', 'aux_hooks')
+
+
+def machine_uses(machines):
+    """What machines use, for profile services: their kinds and the features they declare."""
+    uses = set()
+    for m in machines:
+        uses.add(m.kind)
+        if aux_module(m.definition):
+            uses.add('aux')
+    return uses
+
+
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
                                'drum_controls_stock', 'drum_display_stock'), 'samples')
+# Aux modules run from the auxiliary controller's hooks (aux_hooks.s).
+UNIT_SERVICES.update(dict.fromkeys(('aux_modules', 'aux_module_table', 'aux_hooks'), 'aux'))
 
 
 def module_bytes(profile):
@@ -272,6 +288,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_synth_controls(folder, machines)), obj)
             if step == 'project_companion_table':
                 return cxx(str(generate_project_companion_table(folder, machines)), obj)
+            if step == 'aux_module_table':
+                return cxx(str(generate_aux_modules(folder, machines)), obj)
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
             if step == 'divide':
@@ -283,7 +301,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'startup':
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'sample')]
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
-                                                [x.prefix for x in sample_engines])), obj)
+                                                [x.prefix for x in sample_engines],
+                                                [x.prefix for x in machines if aux_module(x.definition)])), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
@@ -326,7 +345,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                   reserved_bytes=profile['reserved_bytes'],
                   module_sha256=sha(module), elf_sha256=sha(read(directory / 'module.elf')), hooks=hooks,
                   objects=object_owners(machines, profile), patches=patch_profile['patches'],
-                  services=sorted(active_services(profile, (m.kind for m in machines))), device_operations=False,
+                  services=sorted(active_services(profile, machine_uses(machines))), device_operations=False,
                   hardware_tested=False, cpu_timing_measured=False)
     save_json(directory / 'compile-report.json', report)
     return bytes(module), report, patch_profile
@@ -504,7 +523,7 @@ def check_module(directory, tools, profile, machines, profiling=True):
     patch_profile = copy.deepcopy(profile)
     hooks = {}
     text = allocated['.text']
-    services = active_services(profile, (m.kind for m in machines))
+    services = active_services(profile, machine_uses(machines))
     for patch in patch_profile['patches']:
         if not patch_active(patch, services, profiling):
             patch['after'] = patch['before']  # inactive hooks retain stock code

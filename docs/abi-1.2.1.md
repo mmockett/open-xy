@@ -36,6 +36,7 @@ version is rejected. The output differs from stock in exactly these places:
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |
 | Project companions | 4 | Writes a [companion](projects.md) after every project save, and shows companions beside projects over MTP |
+| Aux modules | 3 optional | Lets Shift and an aux track's key put an [aux module](#aux-modules) on aux tracks 1..6, whose page then replaces M1 and whose controls its encoders edit |
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
@@ -509,3 +510,60 @@ supplies only wet audio. The generated adapter exposes the machine's declared
 `dryParameter`, or returns `INT32_MAX` when none is declared, matching stock's
 absent-object fallback. This is a source-mixer control, not a wet/dry crossfade
 inside the effect. See the [effect API](api.md#effects).
+
+## Aux modules
+
+Aux tracks 1..8 are stock tracks 8..15: brain, punch-in, MIDI, CV, audio,
+tape and the two sends. One controller object (vtable `0803fb6c`) serves all
+of them; its page word `0801eae4` is 0..3 for M1..M4. The aux module edits are
+the profile's `aux` service, applied only when a selected machine declares
+[`aux`](api.md#aux-modules); every site is in `8c08…`, beyond a relative
+branch's reach of the module, so each hook replaces an eight-byte instruction
+group with an absolute call ([`aux_hooks.s`](../sdk/platform/opxy-1.2.1/aux_hooks.s)).
+
+**Choosing.** Shift and a track key reach the global controller (`8c091dd0`),
+which opens the preset browser for tracks 0..7 and otherwise calls the aux
+controller's `8c08f60c(controller, track)`. Stock opens the effect browser
+there only for tracks 14 and 15 and returns at once for the others. The hook
+replaces that return's `SP += 0x14; (R7:4) = [SP++]; UNLINK` at `8c08f624`:
+`sdk_aux_select(track)` opens the [stock browser adapter](#stock-browser) with
+the track's stock module and the selected machines' aux modules, and the stub
+completes the epilogue.
+
+**The page.** Method 11 (`8c08f53c`) returns the screen for the selected aux
+track and page: brain 37, punch-in 61, MIDI 11 (M1..M3), CV 62, audio 63,
+tape 60, a send's effect page through its engine, with routing 66 on M2, the
+filter 4 on M3 of tracks 12..15 and the LFO 31 on M4. The hook replaces its
+`P1 = 0x840a0534` at `8c08f540`: on M1 of a track holding a module,
+`sdk_aux_screen` returns the module's page and the stub returns it from the
+method; otherwise the stub replays the load. The module's page is an owned
+synth page, so the compositor paints it as one ([screens](#screens)). Stock's
+title and value calls name the track's own stock module, so the screen shell
+names the module's four controls from its engine record and captions them
+itself, from the track's current words.
+
+**Encoders.** Method 6 (`8c08fa0c`) handles a turn with the encoder in R1
+(Shift adds 4) and the event in R2. Before it tests for the brain and MIDI
+tracks, the hook replaces its `P5 = 0x840a0534` at `8c08fa14`: on M1 of a
+track holding a module, `sdk_aux_turn` edits word `4 + (encoder & 3)` through
+stock's editor `8d5ad5bc(project, track, index, event)`, which steps, locks,
+stores and publishes it as any track parameter, and the stub returns 1 through
+the method's epilogue. Shift turns continuous controls in tenths. Stock's
+generic aux path edits word `encoder + 8 × page`, so M1 of the punch-in, CV,
+audio and tape tracks reaches only words 0..3, and a module's controls leave
+its stock module's alone (the brain and MIDI tracks' own M1 paths have not
+been traced). Stock saves all eight words of every track.
+
+**Macros.** Once a frame, from the compositor's first slot, each module
+control with a macro target passes a changed value to stock's set
+`8d5acf28(project, track, index, value)` for every instrument track 0..7 whose
+stored word differs. That stores the word and sends it to the audio side
+(message 0xa1) as an edit does. The targets are the instrument controller's
+words for M2 and M3 (its table at `8400e1bc`): attack 8, decay 9, sustain 10,
+release 11, cutoff 16 and resonance 17. When a module is put on a track, each
+macro control first takes its target's stored value on track 0.
+
+Which module a track holds is GUI state, not yet saved with the project:
+after a restart every aux track shows its stock module again, with the
+module's stored controls still in words 4..7. Stock's own module keeps
+running beneath; M2..M4 stay stock's.

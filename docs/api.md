@@ -113,6 +113,7 @@ Every machine kind keeps its controls in `definition.json` (for example
 | `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a synth (see [alternate controls](#alternate-controls)), one to eight for a sample engine or effect; an effect's after the fourth are alternates on its send page. Labels are at most eight letters, digits or spaces |
 | `presets` | Named maps containing exactly the declared controls; may be empty |
 | `resources` | What the kind declares about its storage (below) |
+| `aux` | Optional, SDK 1.5: the synth is an [aux module](#aux-modules) |
 
 Controls are finite numbers in [0, 1]. Mappings support `linear`
 (`minimum + (maximum - minimum) * value`), three or more increasing `anchors`
@@ -471,6 +472,49 @@ send weight `s` and Dry `d`, the source dry factor is `1 - s*(1-d)`. At full sen
 Dry zero removes the source dry and Dry one retains it; at zero send, dry stays
 unchanged. Do not add clean audio inside `process` to implement this control.
 Without `dryParameter`, the adapter returns unity to preserve the source dry.
+
+## Aux modules
+
+An aux module (SDK 1.5) is a synth that goes on the OP-XY's aux tracks instead
+of its instrument tracks. On aux track 1..6 (brain, punch-in, MIDI, CV, audio,
+tape), Shift and the track's key open a list of the track's stock module and
+the firmware's aux modules, as Shift and a send's key list its effects. With a
+module chosen, the track's M1 shows the module's page and its encoders edit
+the module's four controls. Stock keeps them with the track like any track
+parameter: they are saved, can be locked on steps and play with the pattern.
+The instrument engine menu never lists an aux module.
+
+A synth becomes one by declaring `aux` in `definition.json`, with exactly four
+controls and no second page:
+
+```json
+"aux": {"macro": ["cutoff", "resonance", "attack", "release"]}
+```
+
+`macro` is optional. For each control it names the instrument-track parameter
+the control sets on all eight instrument tracks while the module is on an aux
+track, or `null`: `attack`, `decay`, `sustain` and `release` (M2's amp
+envelope), `cutoff` and `resonance` (M3's filter). A turned macro control
+stores its value on each track as if that track's own encoder had been turned
+to it. When the module is put on a track, each macro control starts at its
+parameter's value on instrument track 1.
+
+The module draws its page with the [display API](display.md) as any synth
+does; `input.track` is its aux track, 8..13. Its voice never plays: give it a
+silent `render`.
+
+Limits, while this is a draft:
+
+- Which module an aux track holds is not saved yet. After a restart every aux
+  track shows its stock module; the module's controls keep their saved values.
+- The stock module keeps running beneath, on its own controls: the brain still
+  transposes routed tracks, MIDI and CV still send notes, audio and tape still
+  pass their routed audio. Prefer a track whose stock module is idle.
+- M2..M4 stay the track's stock pages, and its LFO reaches the stock
+  module's controls, not the aux module's.
+- The sends (aux tracks 7 and 8) keep their effects.
+
+The [firmware contract](abi-1.2.1.md#aux-modules) describes the hooks.
 
 ## Registration boundary
 

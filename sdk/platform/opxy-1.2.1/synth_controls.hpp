@@ -60,4 +60,12 @@ void sdk_send_refresh() __asm__("sdk_send_refresh");
 // The send page's title for position `index` of the effect on the selected send
 // track: the name of the slot it shows, which a press may have moved to an alternate.
 const char* sdk_fx_title(opxy::u32 effect, opxy::u32 index) __asm__("sdk_fx_title");
+// The owned synth or effect with this engine or effect ID, ready, or null.
+const opxy::platform::SynthControls* sdk_synth_controls_of(opxy::u32 engine, bool effect = false)
+    __asm__("sdk_synth_controls_of");
+// The aux module each aux track 1..6 (tracks 8..13) shows on M1, by engine ID,
+// or 0; and its controls' once-a-frame work, from sdk_send_refresh. Only the
+// aux service (aux_modules.cpp) writes them, so builds without it keep 0.
+extern opxy::u32 sdk_aux_engines[6] __asm__("sdk_aux_engines");
+extern void (*sdk_aux_tick)() __asm__("sdk_aux_tick");
 }

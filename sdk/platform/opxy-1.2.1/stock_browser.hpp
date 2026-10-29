@@ -65,5 +65,9 @@ template<u32 N> struct StockSelector {
     bool open(const char* title, const char* const (&labels)[N], u32 initial, Callbacks callbacks) {
         return detail::open(session, rows, N, title, labels, initial, callbacks);
     }
+    // The first `count` (1..N) labels only, for a list whose length is known at run time.
+    bool open(const char* title, const char* const (&labels)[N], u32 count, u32 initial, Callbacks callbacks) {
+        return count <= N && detail::open(session, rows, count, title, labels, initial, callbacks);
+    }
 };
 }}}

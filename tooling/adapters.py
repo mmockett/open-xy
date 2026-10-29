@@ -13,7 +13,7 @@ import math
 from pathlib import Path
 
 from .benchmark import append_callback
-from .definitions import ROOT, control_positions, paged, validate_definition
+from .definitions import AUX_MACRO_TARGETS, ROOT, aux_module, control_positions, paged, validate_definition
 from .formats import require
 from .stock_tables import REGISTRATION as RELOCATED
 
@@ -369,6 +369,24 @@ def generate_project_companion_table(directory, machines):
         rows.append(f'    {{"{m.id}", {number}, {page}, {"true" if m.kind == "effect" else "false"}}},')
     return expand('project_companion_table.cpp.in', dict(DECLARATIONS='\n'.join(declarations), MACHINES='\n'.join(rows)),
                   Path(directory) / 'project_companion_table.cpp')
+
+
+def generate_aux_modules(directory, machines):
+    """The collection's aux modules (definition "aux"): engine and page symbols, readiness,
+    selector label and each control's macro target word."""
+    declarations, rows = [], []
+    for m in machines:
+        if not aux_module(m.definition):
+            continue
+        declarations += [f'int {m.prefix}_ready() __asm__("{m.prefix}_ready");',
+                         f'extern const char {m.prefix}_engine_id[] __asm__("{m.prefix}_engine_id");',
+                         f'extern const char {m.prefix}_page_id[] __asm__("{m.prefix}_page_id");']
+        macro = m.definition['aux'].get('macro', [None] * 4)
+        targets = ', '.join(str(AUX_MACRO_TARGETS[t] if t else -1) for t in macro)
+        rows.append(f'    {{{m.prefix}_engine_id, {m.prefix}_page_id, {m.prefix}_ready, "{m.native_name}", {{{targets}}}}},')
+    return expand('aux_module_table.cpp.in', dict(DECLARATIONS='\n'.join(declarations), MODULES='\n'.join(rows)),
+                  Path(directory) / 'aux_module_table.cpp')
+
 
 # A send slot's stock scratch memory: scratch(slot, bytes) (0x8d50e048), as stock
 # delay and reverb use it, only for the two send slots (docs/abi-1.2.1.md).

@@ -5,10 +5,11 @@ from .pipeline import check_patch_boundaries
 from . import startup_label
 
 
-def active_services(profile, kinds):
-    """Profile services a collection or selection needs; each names the machine kinds that use it."""
-    kinds = set(kinds)
-    return {name for name, users in profile.get('services', {}).items() if kinds & set(users)}
+def active_services(profile, uses):
+    """Profile services a collection or selection needs; each names the machine kinds, or the
+    features machines declare (tooling.native.machine_uses), that use it."""
+    uses = set(uses)
+    return {name for name, users in profile.get('services', {}).items() if uses & set(users)}
 
 
 def patch_active(patch, services, profiling=True):
