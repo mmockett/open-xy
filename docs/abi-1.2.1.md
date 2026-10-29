@@ -39,7 +39,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
 | Track control | 3 | Runs a synth's track control once per GUI tick, after stock's own call at that site, lets it capture encoder edits, and shows its overlays as parameter values |
-| Aux tracks | 9 | Lets a track control machine take over aux track 12 (CV): its chooser on Shift + M1 (the effect list on the sends), its presets on Shift + track key, its page on M1, and CV and gate kept silent; four MTP allowlist edits show the user's aux presets |
+| Aux tracks | 10 | Lets a track control machine take over aux track 12 (CV): its chooser on Shift + M1 (the effect list on the sends), its presets on Shift + track key, its page on M1, its parameter names on the LFO's destinations, and CV and gate kept silent; four MTP allowlist edits show the user's aux presets |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
 | Extension events | 7 | Observes live input, stock transport and queued controls for extensions, and lets a Record double-tap owner edit notes through stock editing and undo; linked only when an extension is selected |
 | Module | 1 record | One loader block holding the linked module |
@@ -497,6 +497,7 @@ usable for that reason (its branches share `8c08fd60`).
 | `8c08f540` | `P1 = 840a0534` in the page method (+0x2c, `8c08f53c`) | On tab 0, and on a tab the machine hides, returns the machine's page |
 | `8d512214` | The audio loop's call of the CV output `8d50f1cc` (voltage from word 0, mode from word 14) | Skipped while a machine holds track 12; once, clears stock's held CV notes (`8d5b59a0`) and lowers the gate (`8d5b5f78(0)`) |
 | `8d50e95c` | Note on's call of the CV gate `8d5b5fe0` | Skipped while a machine holds track 12 |
+| `8d53d2a0` | `P2 = 84056d50` in the aux LFO's destination label `8d53d160(track, group, slot)`, for group 0: stock's fixed `param1`..`param4` | While a machine holds the track, returns its parameter's name from the engine record (`8d506c4c`), as tracks 1-8 show theirs; otherwise replays the load |
 
 Which machine holds a track is GUI state ([`aux_tracks.cpp`](../sdk/platform/opxy-1.2.1/aux_tracks.cpp)),
 kept with the project in its [companion](projects.md#open-xycontrol). GUI and

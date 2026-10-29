@@ -395,7 +395,9 @@ on its aux track only.
   with the project; a new project starts with `cv`.
 - **Its page:** M1 shows the machine's display, and its encoders, presses and
   alternates work as on tracks 1-8. Its `hidePages` and `page_key` work there
-  too: on an aux track M2..M4 are the track's other pages and its LFO.
+  too: on an aux track M2..M4 are the track's other pages and its LFO. The
+  LFO's four engine destinations, the track's words 0..3, are named after the
+  machine's first four parameters, and move them as on tracks 1-8.
 - **Its controls:** words 0..7 of track 12, so they are sequenced, locked and
   saved like any track parameter, and `values[11]` holds them. Taking the
   track over sets the machine's defaults; giving it back restores the role's

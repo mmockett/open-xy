@@ -1321,6 +1321,17 @@
     },
     {
       "kind": "hook",
+      "name": "The aux LFO names its engine destinations after the machine holding the track",
+      "address": "0x8d53d2a0",
+      "file_offset": "0x1744fc",
+      "length": 8,
+      "before": "0ada0584506d0000",
+      "symbol": "sdk_aux_lfo_label_hook",
+      "call": true,
+      "service": "aux"
+    },
+    {
+      "kind": "hook",
       "address": "0x8c0baaf0",
       "file_offset": "0xf1d2c",
       "length": 8,

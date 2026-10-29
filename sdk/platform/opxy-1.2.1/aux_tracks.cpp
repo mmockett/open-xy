@@ -21,6 +21,10 @@
 // Both lists show the track's number under the title, as stock's do.
 // - Its page method 8c08f53c answers the screen page for the selected track
 //   and tab; the hook at 8c08f540 answers the machine's page on tab 0.
+// - The aux LFO names its four engine destinations from a fixed table
+//   ("param1".."param4", 84056d50) in 8d53d160(track, group, slot); the hook at
+//   8d53d2a0 names them after the machine holding the track instead, through
+//   the engine record's names (8d506c4c), as tracks 1-8 name theirs.
 //
 // Taking a track over keeps the stock role's eight controls aside and gives the
 // machine its defaults, through stock's set (8d5acf28), which stores and
@@ -50,6 +54,7 @@ extern "C" {
 void sdk_aux_shift_m1() __asm__("sdk_aux_shift_m1");
 opxy::u32 sdk_aux_shift_track(opxy::u32 controller, opxy::u32 track) __asm__("sdk_aux_shift_track");
 opxy::i32 sdk_aux_page() __asm__("sdk_aux_page");
+const char* sdk_aux_lfo_label(opxy::u32 track, opxy::u32 slot) __asm__("sdk_aux_lfo_label");
 void sdk_cv_output(opxy::u32) __asm__("sdk_cv_output");
 void sdk_cv_gate_on(opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_cv_gate_on");
 // For track_control_project.cpp: the machine ID holding each aux track, and
@@ -404,6 +409,15 @@ i32 sdk_aux_page() {
     const u32 tab = word(kAuxTab);
     const ControlMachine* m = holder(byte(kSelectedTrack));
     return m && (tab == 0 || (tab < 4 && hides(*m, tab))) ? static_cast<i32>(m->page_id()) : -1;
+}
+
+// 8d53d2a0: the name of the aux LFO's engine destination `slot` (0..3, the
+// track's words 0..3) while a machine holds `track`: that parameter's name in
+// the machine's engine record, as an instrument track's LFO shows it; else 0
+// for stock's "param1".."param4".
+const char* sdk_aux_lfo_label(u32 track, u32 slot) {
+    const ControlMachine* m = slot < opxy::page_controls ? holder(track) : nullptr;
+    return m ? stock<const char*(u32, u32)>(0x8d506c4c)(m->engine(), slot) : nullptr;
 }
 
 // 8d512214, audio side: CV output, unless a machine holds the CV track.
