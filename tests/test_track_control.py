@@ -213,8 +213,9 @@ class TrackControl(unittest.TestCase):
         # Aux tracks are a service of their own: its hooks and MTP allowlist edits.
         aux_edits = [p for p in config()['patches'] if p.get('service') == 'aux']
         self.assertEqual(sorted(p.get('symbol', p['address']) for p in aux_edits),
-                         ['0x840ae308', '0x840ae32c', '0x840aedfc', '0x840aee6c', 'sdk_aux_page_hook',
-                          'sdk_aux_shift_m1_hook', 'sdk_aux_shift_track_hook', 'sdk_cv_gate_on', 'sdk_cv_output'])
+                         ['0x840ae308', '0x840ae32c', '0x840aedfc', '0x840aee6c', 'sdk_aux_lfo_label_hook',
+                          'sdk_aux_page_hook', 'sdk_aux_shift_m1_hook', 'sdk_aux_shift_track_hook', 'sdk_cv_gate_on',
+                          'sdk_cv_output'])
         for machines, used, aux_used in ((plain, False, False), ([hiding], True, False), ([steering], True, False),
                                          ([aux], True, True)):
             services = active_services(config(), native.service_users(machines))

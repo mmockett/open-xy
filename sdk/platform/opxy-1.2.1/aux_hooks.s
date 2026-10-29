@@ -82,3 +82,34 @@ sdk_aux_page_hook:
     P1.H = 0x840a;
     RTS;
 .size sdk_aux_page_hook, .-sdk_aux_page_hook
+
+/* 8d53d2a0: the aux LFO's destination label 8d53d160(track, group, slot),
+ * after its LINK 0x10, [--SP] = (R7:4) and SP += -0x10, with track in R7 and
+ * slot in R5, loads P2 = 84056d50 ("param1".."param4") over eight bytes for
+ * group 0. sdk_aux_lfo_label(track, slot) answers the name of that control
+ * of the machine holding the track, or 0: then the stub makes the replaced
+ * load and returns into stock; otherwise it leaves the method with the name,
+ * as the method's own epilogue would. R0-R3 and P0-P2 are dead at the site.
+ */
+.extern sdk_aux_lfo_label
+.global sdk_aux_lfo_label_hook
+.type sdk_aux_lfo_label_hook, STT_FUNC
+sdk_aux_lfo_label_hook:
+    LINK 0;
+    SP += -12;
+    R0 = R7;
+    R1 = R5;
+    CALL sdk_aux_lfo_label;
+    SP += 12;
+    UNLINK;
+    CC = R0 == 0;
+    IF CC JUMP 1f;
+    SP += 0x10;
+    (R7:4) = [SP++];
+    UNLINK;
+    RTS;
+1:
+    P2.L = 0x6d50;
+    P2.H = 0x8405;
+    RTS;
+.size sdk_aux_lfo_label_hook, .-sdk_aux_lfo_label_hook
