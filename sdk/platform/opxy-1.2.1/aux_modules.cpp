@@ -114,7 +114,9 @@ void sdk_aux_select(u32 track) {
     }
     if (count == 1) return;
     selecting = track;
-    selector.open("aux module", labels, count, initial, browser::Callbacks{nullptr, choose, nullptr});
+    // Titled as stock's preset browser is: the aux track's number over "aux".
+    selector.open("aux", labels, count, initial, browser::Callbacks{nullptr, choose, nullptr},
+                  static_cast<opxy::i32>(a));
 }
 
 // 8c08f540: the auxiliary controller's page choice (its method 11). On M1 of

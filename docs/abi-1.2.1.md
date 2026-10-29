@@ -120,7 +120,9 @@ an audio callback or publish audio state by sharing the GUI selector storage.
 
 The stock call contract is in `stock_browser.cpp`: browser getter `8c09dc28`,
 setup `8c0a0b90(browser, catalog, initial, delegate, mode=0)`, screen getter
-`8d550e70`, plain heading `8d551c48(screen, -1, title)` and preset-bank visibility
+`8d550e70`, heading `8d551c48(screen, number, title)`, which shows `number + 1` above
+the title when `number` is 0 or more, as the preset browser shows its track's, and
+preset-bank visibility
 `8d5501ec(screen, 0)`. The catalog uses 28-byte inline strings, 36-byte items,
 72-byte rows and a 20-byte root on the 32-bit target. The delegate's +0x10
 method receives highlights, +0x1c handles clicks (0 left, 3 white), +0x24 observes
@@ -526,9 +528,9 @@ which opens the preset browser for tracks 0..7 and otherwise calls the aux
 controller's `8c08f60c(controller, track)`. Stock opens the effect browser
 there only for tracks 14 and 15 and returns at once for the others. The hook
 replaces that return's `SP += 0x14; (R7:4) = [SP++]; UNLINK` at `8c08f624`:
-`sdk_aux_select(track)` opens the [stock browser adapter](#stock-browser) with
-the track's stock module and the selected machines' aux modules, and the stub
-completes the epilogue.
+`sdk_aux_select(track)` opens the [stock browser adapter](#stock-browser),
+titled "aux" under the aux track's number, with the track's stock module and
+the selected machines' aux modules, and the stub completes the epilogue.
 
 **The page.** Method 11 (`8c08f53c`) returns the screen for the selected aux
 track and page: brain 37, punch-in 61, MIDI 11 (M1..M3), CV 62, audio 63,
