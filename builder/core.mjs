@@ -120,7 +120,8 @@ export function validIdentity(rules, kind, identity) {
   if (!Number.isInteger(n) || !Number.isInteger(page)) return false;
   if (screen && !(page === 2 && Number.isInteger(identity.screen) && identity.screen > rules.page_none &&
     identity.screen < rules.pages)) return false;
-  if (kind === 'effect') return rules.effects.includes(n) && page === rules.effect_page;
+  // An effect is on the stock FX page, or on a relocated page when it draws its own (SDK 1.5).
+  if (kind === 'effect') return rules.effects.includes(n) && (page === rules.effect_page || page > rules.page_none && page < rules.pages);
   if (!(n > 0 && n < rules.engines && n !== rules.engine_none && !rules.stock_engines.includes(n))) return false;
   return kind === 'sample' ? n > rules.engine_none && rules.sample_pages.includes(page)
     : kind === 'synth' && page > rules.page_none && page < rules.pages;
@@ -154,7 +155,7 @@ export function occupied(rules, identity) {
   const keys = ['engine', 'effect'].filter(slot => Object.hasOwn(identity, slot)).map(slot => slot + ' ' + identity[slot]);
   // Stock reads a send track's effect number as its engine: no engine shares it.
   if (Object.hasOwn(identity, 'effect')) keys.push('engine ' + identity.effect);
-  if (!Object.hasOwn(identity, 'effect') && !rules.sample_pages.includes(identity.page)) keys.push('page ' + identity.page);
+  if (!rules.sample_pages.includes(identity.page) && identity.page !== rules.effect_page) keys.push('page ' + identity.page);
   if (Object.hasOwn(identity, 'screen')) keys.push('page ' + identity.screen);
   return keys;
 }
@@ -178,7 +179,24 @@ export function numberLayout(rules, fixed, layout, machines) {
     else hold(name, identity);
   }
   for (const [name, kind, requested] of machines) {
-    let slots = kind === 'effect' ? ['effect'] : kind === 'synth' ? ['engine', 'page'] : ['engine'], identity;
+    const ownPage = kind === 'synth' || kind === 'effect' && requested.page !== rules.effect_page;
+    if (Object.hasOwn(numbers, name) && kind === 'effect' && ownPage !== (numbers[name].page !== rules.effect_page)) {
+      // An effect that came to draw its own page, or stopped: it keeps its
+      // effect number and is given a page, or gives its page up.
+      const held = numbers[name];
+      delete numbers[name];
+      for (const [key, holder] of [...holders]) if (holder === name) holders.delete(key);
+      const identity = {...held, page: rules.effect_page};
+      if (ownPage) {
+        identity.page = [...(pools.page.includes(requested.page) ? [requested.page] : []), ...pools.page]
+          .find(n => !holders.has('page ' + n));
+        check(identity.page !== undefined, `No free page number for ${name}: every one is held in this layout`);
+      }
+      check(validIdentity(rules, kind, identity), `${name}: no valid numbers`);
+      hold(name, identity);
+      continue;
+    }
+    let slots = kind === 'effect' ? ['effect', ...(ownPage ? ['page'] : [])] : kind === 'synth' ? ['engine', 'page'] : ['engine'], identity;
     if (Object.hasOwn(numbers, name)) {
       check(kind !== 'sample' || numbers[name].page === requested.page,
         `${name} now asks for stock page ${requested.page}; the layout holds another`);

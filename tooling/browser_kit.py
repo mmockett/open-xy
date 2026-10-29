@@ -77,7 +77,8 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
         if m.display != 'stock':
             entry['artwork'] = read(m.root / 'panel.svg.fragment').decode('utf-8')
             entry['asset'] = m.native_name + '.svg'
-        # A sample engine's own screen has no browser preview: it shows the sample.
+        # Only a synth's screen has a browser preview: a sample engine's own screen
+        # shows the sample, and an effect's own page has none either.
         if m.kind == 'synth':
             preview_dir = output / ('preview-' + m.id)
             preview.build(preview_cxx, m, preview_dir)

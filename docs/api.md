@@ -7,7 +7,7 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 | --- | --- | --- |
 | `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment` | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
 | `sample` | `sample.cpp` with `Voice` state; the stock sample page is its screen, or on page 2 optionally its own (`display.cpp` and `panel.svg.fragment`) | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
-| `effect` | `fx.cpp` with `State`; the stock FX page is its screen | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
+| `effect` | `fx.cpp` with `State`; the stock FX page is its screen, or its own (SDK 1.5) | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
 
 The [first-machine walkthrough](first-machine.md) creates a standalone synth
 and previews it without native integration. SDK adapters own allocation,
@@ -94,7 +94,8 @@ host does fast and the Blackfin does not:
 - **Division** has no hardware instruction and costs tens of cycles on the
   device. Divide once per block, or use a table or a reciprocal.
 - **Floating point** has no hardware either. Keep audio in integers;
-  [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers.
+  [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
+  saturating multiply, and (SDK 1.5) a saturating add, one instruction each on the device.
 - **64-bit arithmetic** has no runtime helpers in the module: keep products
   within 32 bits or split them, as `q31.hpp` does.
 - **Per-sample work that changes only per block**, such as coefficients and
@@ -441,7 +442,51 @@ declared controls. Do not depend on the absolute level of the send buffers.
 `State` is at most `opxy::effect_state_bytes` (476) with alignment at most 4.
 No destructor ever runs, so it holds no resources. The generated adapter
 checks both limits at compile time. Effects use the stock FX page, with any controls after the fourth as
-[alternates](#alternate-controls), and have no browser preview.
+[alternates](#alternate-controls) or a [second page](#effect-pages-and-shift-rows), and have no browser preview.
+
+### Effect pages and shift rows
+
+An effect with five to eight controls may declare `"press": "page"` (SDK 1.5),
+as a synth does: a press of any encoder on its send page switches all four
+positions between its first four controls and the rest.
+
+An effect may also declare a **shift row** (SDK 1.5): one to four enum
+controls in `"shift"` in `definition.json`, which Shift and the send page's
+four encoders choose, one choice per detent, while the page shows their names
+and choices. They suit routing and modes, such as an order or a source. All
+their choices together are at most 1,048,576 combinations; the first choice of
+each is what a new project starts with. With a shift row, Shift no longer
+turns the effect's continuous controls in fine steps.
+
+`process` then receives twelve words: the eight controls, then each shift-row
+control's chosen word, read as any enum control:
+
+```json
+"shift": [
+  {"id": "order", "label": "Order", "default": 0, "display": "enum",
+   "mapping": {"kind": "enum", "labels": ["TPES", "TEPS", "PTES"]}}
+]
+```
+
+```cpp
+const opxy::u32 order = ((static_cast<opxy::u32>(parameters[8]) >> 16) * 3) >> 15;
+```
+
+Its `State` is then 4 bytes smaller than otherwise (the slot keeps the send's
+number). See the [firmware contract](abi-1.2.1.md#effect-pages-and-shift-rows).
+
+### Effect pages
+
+An effect may draw its own page on the send tracks (SDK 1.5): it declares
+`resources.display` and supplies `display.h`, `display.cpp` and
+`panel.svg.fragment`, exactly as a synth does ([display API](display.md)), and
+asks for a page from 82..127 in its identity. Stock shows the page an effect's
+record names on M1 of a send, so the page replaces stock's FX page there; its
+header names and captions the effect's controls, or its shift row's while
+Shift is held, and the display reads them all, the shift row too
+([input](display.md#effect-pages-sdk-15)). Effects have no browser preview
+yet. An effect that comes to draw its own page keeps its effect number and is
+given a page in its firmware's layout.
 
 ### Effect buffers
 
@@ -493,6 +538,9 @@ send weight `s` and Dry `d`, the source dry factor is `1 - s*(1-d)`. At full sen
 Dry zero removes the source dry and Dry one retains it; at zero send, dry stays
 unchanged. Do not add clean audio inside `process` to implement this control.
 Without `dryParameter`, the adapter returns unity to preserve the source dry.
+Instead, an effect may fix its Dry with `dryLevel` in `machine.json` (SDK 1.5),
+a number from 0 to 1. An effect that mixes its own dry, as a box of effects
+inline does, declares 0: at full send a track then goes wholly through it.
 
 ## Aux modules
 
@@ -598,7 +646,7 @@ firmware that holds it.
 | --- | --- | --- |
 | `synth` | 34..62 | Its own screen: 82..127 |
 | `sample` | 34..62 | Stock sample page 2 or 7; `padSettings` requires 7. An [own screen](#own-screen) (page 2): `screen`, 82..127 |
-| `effect` | 1, 8, 11, 21, 23..28 or 34..62 | Stock FX page 21 |
+| `effect` | 1, 8, 11, 21, 23..28 or 34..62 | Stock FX page 21, or its own: 82..127 |
 
 Engine IDs above 32, effect IDs above 18 and pages above 81 exist only in the
 relocated stock tables.
