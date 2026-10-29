@@ -95,6 +95,8 @@ def configuration(entries=None, layout=None):
         else:
             definitions[m.prefix + '_engine_id'] = m.identity['engine']
             definitions[m.prefix + '_page_id'] = m.identity['page']
+            if 'screen' in m.identity:   # a sample engine's own screen
+                definitions[m.prefix + '_screen_page_id'] = m.identity['screen']
     return profile, machines, definitions
 
 
@@ -187,7 +189,7 @@ def plan(machines, profile=None):
         elif m.kind == 'effect':
             steps = ('registration', 'fx_object', *(('display', 'screen') if m.display != 'stock' else ()))
         else:
-            steps = ('registration', 'sample_voice')
+            steps = ('registration', 'sample_voice', *(('display', 'screen') if m.display != 'stock' else ()))
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
     services = active_services(profile or config(), service_users(machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
@@ -208,12 +210,12 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
              'extension_runtime', 'extension_collection', 'extension_stock', 'track_control',
              'track_control_table', 'track_control_hooks', 'track_control_overlay', 'track_control_project',
-             'synth_pages', 'aux_tracks', 'aux_hooks')
+             'synth_pages', 'aux_tracks', 'aux_hooks', 'sample_overview')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
-                               'drum_controls_stock', 'drum_display_stock'), 'samples')
+                               'drum_controls_stock', 'drum_display_stock', 'sample_overview'), 'samples')
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
 # Track control and hidden pages run from the GUI tick hook; the marks' screen
 # registers at startup only in builds that link it, and startup stands in for the
@@ -292,11 +294,13 @@ def absent_symbols(m):
             absent[m.prefix + '_screen_register'] = 'kit_absent'
     else:
         absent = {m.prefix + suffix: 'kit_absent' for suffix in ('_register', '_name_matches', '_ready', '_record_ready')}
-        if m.display == 'stock':
+        if m.kind == 'sample':
             # The shared sample table names these; unselected, its ready check declines first.
             absent.update({symbol: 'kit_absent' for symbol in sample_callbacks(m)})
-        else:
+        if m.display != 'stock':
             absent[m.prefix + '_screen_register'] = 'kit_absent'
+        if m.kind == 'sample' and m.display != 'stock':
+            absent[m.prefix + '_screen_ready'] = 'kit_absent'
     if m.kind in ('effect', 'sample'):
         absent[m.prefix + '_benchmark'] = 'kit_absent'
     return absent
@@ -414,8 +418,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 services = active_services(profile, service_users(machines))
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
                                                 [x.prefix for x in sample_engines], 'control' in services,
-                                                'aux' in services,
-                                                [x.prefix for x in effects if x.display != 'stock'])), obj)
+                                                'aux' in services, [x.prefix for x in effects if x.display != 'stock'],
+                                                [x.prefix for x in sample_engines if x.display != 'stock'])), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)

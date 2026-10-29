@@ -6,7 +6,7 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 | Kind | C++ the machine supplies | Example |
 | --- | --- | --- |
 | `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment`; `control.cpp` with [track control](#track-control) | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
-| `sample` | `sample.cpp` with `Voice` state; the stock sampler it forks provides its screen | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
+| `sample` | `sample.cpp` with `Voice` state; the stock sampler it forks provides its screen, or forking the sampler optionally its own (`display.cpp` and `panel.svg.fragment`) | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
 | `effect` | `fx.cpp` with `State`; the stock FX page is its screen, or its own (SDK 1.7) | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
 
 The [first-machine walkthrough](first-machine.md) creates a standalone synth
@@ -435,6 +435,23 @@ the stock sampler: one sample, played chromatically across the keyboard, its
 root key playing it as recorded. With `"base": "drumSampler"` it plays like
 the stock drum sampler: 24 pads, each with its own sample.
 
+### Own screen
+
+A sample engine forking the sampler (`"base": "sampler"`) may draw its own
+screen over the sampler's page, as a synth draws its page: it declares
+`resources.display` in `definition.json` and supplies `display.cpp` and
+`panel.svg.fragment` ([Display API](display.md)), and each build gives the
+screen a page as it gives a synth's ([Identity](#identity)). The screen covers the
+sampler's page whenever a track using the engine is selected and that page is
+showing; the stock sample browser and recorder keep their own pages. The
+encoders then edit the engine's controls as on a synth's page:
+a press switches between the first four controls and the second four, Shift
+turns a continuous control in fine steps, an enum steps one choice per detent,
+and edits are saved like a synth's. The engine plays the
+sample between its outer markers; inner loop markers do not narrow it.
+Display code can draw the sample from its
+[overview](display.md#sample-overview).
+
 ### Services
 
 Each service is an optional entry in `definition.json` `resources`; omitted
@@ -723,7 +740,7 @@ build gives every machine the stock numbers projects save, an engine number
 | Kind | Engine or effect number | Screen |
 | --- | --- | --- |
 | `synth` | Engine 34..62 | Its own, 82..127 |
-| `sample` | Engine 34..62 | Its base's: the stock sampler's or drum sampler's |
+| `sample` | Engine 34..62 | Its base's: the stock sampler's or drum sampler's. An [own screen](#own-screen): its own, 82..127 |
 | `effect` | Effect 1, 8, 11, 21, 23..28 or 34..62 | The stock FX screen, or its own, 82..127 (SDK 1.7) |
 
 These numbers exist only in the relocated stock tables, so no machine shares
@@ -742,13 +759,16 @@ collection or selection order, so even a build without a layout gives a machine
 the same numbers whatever else it includes, unless another machine's place
 collides with its own: then the first by ID keeps it. Only a layout guarantees
 numbers.
+A sample engine's own screen takes a page as a synth's does, and one that
+gains a screen keeps its other numbers.
 A [project companion](projects.md) records what a project's numbers meant by
 machine ID, so Open-XY firmware with another layout opens the project with the
 same machines.
 
 Machines targeting SDK 1.4 or earlier instead list the numbers they ask for in
-`identity`, `{"engine": n, "page": p}` or `{"effect": n, "page": 21}`, and
-name no `base`. A layout gives them when free, before any machine's own place,
+`identity`, `{"engine": n, "page": p}` or `{"effect": n, "page": 21}`
+(`{"engine": n, "page": 2, "screen": s}` for a sample engine with its own
+screen), and name no `base`. A layout gives them when free, before any machine's own place,
 otherwise numbers as for any other machine;
 a sample engine's `page` 2 forks the sampler and 7 the drum sampler. Such a
 machine keeps working unchanged. To move it to `"sdk": "1.5"`, delete

@@ -63,6 +63,16 @@ class Identity(unittest.TestCase):
             with self.subTest(page=page), self.assertRaises(ValueError):
                 machines.check_identity(RULES, 'synth', identity('synth', page=page))
 
+    def test_a_sample_engine_on_page_2_may_ask_for_its_own_screen(self):
+        own = identity('sample', screen=90)
+        self.assertEqual(machines.check_identity(RULES, 'sample', own), own)
+        self.assertIn(('page', 90), machines.occupied(RULES, own))
+        for kind, value in (('sample', identity('sample', page=7, screen=90)), ('sample', identity('sample', screen=81)),
+                            ('sample', identity('sample', screen=128)), ('sample', identity('sample', screen=True)),
+                            ('synth', identity('synth', screen=90))):
+            with self.subTest(kind=kind, value=value), self.assertRaises(ValueError):
+                machines.check_identity(RULES, kind, value)
+
     def test_names_and_fields_are_checked(self):
         # The folder name is the stock name, so identity holds only IDs.
         for kind, value in (('synth', identity('synth', name='probe')), ('synth', identity('synth', prefix='probe')),
@@ -304,6 +314,25 @@ class OutsideMachines(unittest.TestCase):
         self.assertEqual(machines.machine_at(folder).identity, {'engine': None, 'page': 2})
         self.numberless(folder, base=None, sdk='1.4', identity={'engine': 47, 'page': 2})
         self.assertEqual(machines.machine_at(folder).identity, {'engine': 47, 'page': 2})
+
+    def test_a_sample_engine_forking_the_sampler_may_draw_its_own_screen(self):
+        folder = self.copy('probesample')
+        definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+        for name in ('padSettings', 'drumControls'):
+            definition['resources'].pop(name)
+        synth = json.loads((FOLDER / 'probesynth/definition.json').read_text(encoding='utf-8'))
+        definition['resources']['display'] = synth['resources']['display']
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(folder, base='drumSampler')
+        with self.assertRaisesRegex(ValueError, 'Only a sample engine forking the sampler'):
+            machines.machine_at(folder)
+        self.numberless(folder, base='sampler')
+        m = machines.machine_at(folder)
+        self.assertEqual((m.display, m.identity), ('drawing', {'engine': None, 'page': 2, 'screen': None}))
+        # The layout gives the screen a page from its own place, as it gives a synth's.
+        numbers = machines.number_layout(RULES, [], None, [(m.id, m.kind, m.identity)])[m.id]
+        self.assertEqual(numbers['page'], 2)
+        self.assertIn(numbers['screen'], machines.number_pools(RULES)['page'])
 
     def preset(self, **changes):
         value = {'engine': {'params': [0, 16384, 32767, 0, 0, 0, 0, 0], 'volume': 16384}, 'platform': 'OP-XY',

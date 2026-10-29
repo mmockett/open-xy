@@ -22,6 +22,11 @@ const SampleMachine sdk_sample_machines[] = {
     {reinterpret_cast<const char*>(37), 7, owned, defaults, assign, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr}
 };
 const opxy::u32 sdk_sample_machine_count = 3;
+// No engine here draws its own screen.
+const SynthControls sdk_synth_controls[] = {
+    {nullptr, nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false}};
+const opxy::u32 sdk_synth_control_count = 0;
+void sdk_synth_shown(opxy::u32, opxy::u8* shown) { for (opxy::u32 i = 0; i < 4; ++i) shown[i] = opxy::u8(i); }
 opxy::u32 sdk_sample_edit(void* raw, opxy::u32 index, opxy::i32 direction, opxy::u32 engine) {
     check(engine == 35 && (direction == 1 || direction == 0));
     const unsigned pad = (static_cast<unsigned*>(raw) - &pads[0][0]) / 8;

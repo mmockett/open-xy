@@ -93,6 +93,7 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
         if m.display != 'stock':
             entry['artwork'] = read(m.root / 'panel.svg.fragment').decode('utf-8')
             entry['asset'] = m.native_name + '.svg'
+        # A sample engine's own screen has no browser preview: it shows the sample.
         if m.display != 'stock' and m.kind == 'synth':
             preview_dir = output / ('preview-' + m.id)
             preview.build(preview_cxx, m, preview_dir)

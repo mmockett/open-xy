@@ -162,7 +162,9 @@ def check_identity(rules, kind, value, display=None):
     """
     require(isinstance(value, dict), 'machine.json needs an identity')
     slot = 'effect' if kind == 'effect' else 'engine'
-    require(set(value) == {slot, 'page'}, 'Unexpected identity fields')
+    # A sample engine with its own screen also asks for that screen's page.
+    require(set(value) == {slot, 'page'} or (kind == 'sample' and set(value) == {slot, 'page', 'screen'}),
+            'Unexpected identity fields')
     number, page = value[slot], value['page']
     require(type(number) is int and type(page) is int, 'IDs must be integers')
     if kind == 'effect':
@@ -177,6 +179,12 @@ def check_identity(rules, kind, value, display=None):
     if kind == 'sample':
         require(rules['engine_none'] < number and page in rules['sample_pages'],
                 'Sample engines need a relocated-table engine ID and a stock sample page')
+        if 'screen' in value:
+            screen = value['screen']
+            require(type(screen) is int and rules['page_none'] < screen < rules['pages'],
+                    "A sample engine's own screen needs a relocated page")
+            require(page == 2, 'Only a sample engine on page 2 draws its own screen')
+            return {slot: number, 'page': page, 'screen': screen}
     else:
         # The last page holds track control's marks (track_control_overlay.cpp.in).
         require(rules['page_none'] < page < rules['pages'] - 1, 'A machine with its own screen needs a relocated page')
@@ -214,6 +222,8 @@ def check_request(rules, kind, value):
     else:
         forms = [{'engine': None, 'page': page} for page in SAMPLE_BASES.values()] if kind == 'sample' else [
             {'engine': None, 'page': None}]
+        if kind == 'sample':
+            forms.append({'engine': None, 'page': SAMPLE_BASES['sampler'], 'screen': None})
     return value if value in forms else check_identity(rules, kind, value)
 
 
@@ -304,11 +314,19 @@ def machine_at(root, identity=None):
         require(kind == 'effect' and 'dryParameter' not in value and type(level) in (int, float) and 0 <= level <= 1,
                 'dryLevel is a number from 0 to 1 on an effect without dryParameter')
         dry_level = round(level * 0x7fffffff)
-    # A synth draws its own screen, and so may an effect (SDK 1.7); sample
-    # engines and other effects use a stock page.
+    # A synth draws its own screen, and so may an effect (SDK 1.7) or a sample
+    # engine declaring a display; other sample engines and effects use a stock page.
     display = 'drawing' if kind == 'synth' or 'display' in definition['resources'] else 'stock'
     if kind == 'effect' and display == 'drawing':
         require_sdk(version, (1, 7), "An effect's own page (resources.display)")
+    if kind == 'sample':
+        if version >= (1, 5) and 'display' in definition['resources']:
+            # The layout gives its screen a page, as it gives a synth's.
+            require(requested['page'] == SAMPLE_BASES['sampler'],
+                    'Only a sample engine forking the sampler ("base": "sampler") draws its own screen')
+            requested = dict(requested, screen=None)
+        require(('display' in definition['resources']) == ('screen' in requested),
+                'A sample engine declaring a display asks for its screen page (identity.screen), and only then')
     # The native plan compiles extra translation units only into synths.
     if kind != 'synth':
         require(not sources and not includes,
@@ -386,6 +404,8 @@ def occupied(rules, identity):
         keys.append(('engine', identity['effect']))
     if identity['page'] not in rules['sample_pages'] and identity['page'] != rules['effect_page']:
         keys.append(('page', identity['page']))
+    if 'screen' in identity:
+        keys.append(('page', identity['screen']))
     return keys
 
 
@@ -405,7 +425,8 @@ def check_layout_numbers(machines, where):
     """Layout numbers by machine ID: an engine and page, or an effect and page, each."""
     for name, identity in machines.items():
         stock_name(name)
-        require(isinstance(identity, dict) and set(identity) in ({'engine', 'page'}, {'effect', 'page'}) and
+        require(isinstance(identity, dict) and set(identity) in ({'engine', 'page'}, {'effect', 'page'},
+                                                                 {'engine', 'page', 'screen'}) and
                 all(type(n) is int for n in identity.values()), f'{name}: invalid numbers in {where}')
     return machines
 
@@ -452,18 +473,24 @@ def number_layout(rules, fixed, layout, machines):
             else:
                 numbers[name] = dict(numbers[name], page=rules['effect_page'])
         elif name in numbers:
-            check_identity(rules, kind, numbers[name])
             require(kind != 'sample' or numbers[name]['page'] == requested['page'],
                     f'{name} now forks another stock sampler; the layout holds its numbers for the old one')
+            if 'screen' not in requested or 'screen' in numbers[name]:
+                check_identity(rules, kind, numbers[name])
+                continue
+            # A sample engine that gains its own screen keeps its numbers and gets a page.
+            new.append((name, kind, dict(numbers[name], screen=requested['screen']), ('screen',)))
         else:
             slots = (('effect', 'page') if own_page else ('effect',)) if kind == 'effect' else \
                 ('engine', 'page') if kind == 'synth' else ('engine',)
-            new.append((name, kind, dict(requested), slots))
-    # An effect number is also held as an engine number (occupied).
-    keys = lambda slot, n: [(slot, n)] + ([('engine', n)] if slot == 'effect' else [])
+            new.append((name, kind, dict(requested), slots + (('screen',) if 'screen' in requested else ())))
+    # An effect number is also held as an engine number (occupied); a screen holds a page.
+    pool = lambda slot: pools['page' if slot == 'screen' else slot]
+    keys = lambda slot, n: [('page' if slot == 'screen' else slot, n)] + ([('engine', n)] if slot == 'effect' else [])
     # The last page is track control's marks: in the pool, so every other
     # machine keeps its own place, but never given out.
-    free = lambda slot, n: not (slot == 'page' and n == rules['pages'] - 1) and not any(k in holders for k in keys(slot, n))
+    free = lambda slot, n: not (slot in ('page', 'screen') and n == rules['pages'] - 1) and \
+        not any(k in holders for k in keys(slot, n))
 
     def take(name, identity, slot, n):
         identity[slot] = n
@@ -475,12 +502,12 @@ def number_layout(rules, fixed, layout, machines):
         for slot in slots:
             n = identity[slot]
             identity[slot] = None
-            if n in pools[slot] and free(slot, n):
+            if n in pool(slot) and free(slot, n):
                 take(name, identity, slot, n)
     for name, kind, identity, slots in new:
         for slot in slots:
             if identity[slot] is None:
-                n = next((n for n in preferred(pools[slot], name) if free(slot, n)), None)
+                n = next((n for n in preferred(pool(slot), name) if free(slot, n)), None)
                 require(n is not None, f'No free {slot} number for {name}: every one is held in this layout')
                 take(name, identity, slot, n)
         hold(name, check_identity(rules, kind, identity))
@@ -534,7 +561,7 @@ def collection(entries=None, layout=None):
     machines, _numbers = assign_numbers(machines, layout)
     engines = [m.identity['engine'] for m in machines if 'engine' in m.identity]
     effects = [m.identity['effect'] for m in machines if 'effect' in m.identity]
-    pages = [m.identity['page'] for m in machines if m.display != 'stock']
+    pages = [m.identity['screen' if m.kind == 'sample' else 'page'] for m in machines if m.display != 'stock']
     require(len(set(engines)) == len(engines) and len(set(effects)) == len(effects) and len(set(pages)) == len(pages),
             'Conflicting engine, effect or page ID')
     check_analysis_budgets(machines)
