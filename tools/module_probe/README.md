@@ -12,14 +12,16 @@ the two questions that decide it, on the device:
 Code: `sdk/platform/opxy-1.2.1/module_probe.cpp` and `module_probe_cache.s`,
 called from `startup.cpp.in` (stages 1–3) and `project_companion.cpp`
 (stage 4, project save). Branch `exp/module-file-probe`, from
-`open-xy-aux-samples` at `1f38077`, the tree behind `combined-001` and `combined-003`.
+`open-xy-aux-samples` at `1f38077`, the tree behind the `combined-*` builds.
 
 ## Build
 
-`module-probe-003` is `combined-003` (on the device from 2026-10-29 20:10)
-plus the probe: the same layout, catalog, screens and machine objects. Only
-`os.ldr` differs (sha256 `53bcd81b…`; combined-003 is `79a311ef…`), and
-only `startup.o` and `project_companion.o` change, plus the two probe objects.
+`module-probe-004` is `combined-004` (on the device as of 2026-10-29; Lint's
+controls reordered) plus the probe: the same layout, catalog, screens and
+machine objects. Only `os.ldr` differs (sha256 `942fc2d3…`; combined-004 is
+`30914b34…`), and only `startup.o` and `project_companion.o` change, plus the
+two probe objects. The Nonagon session built it and stages it; earlier probe
+builds (002, 003) match firmware no longer on the device.
 If the device moves on to another build, rebuild the probe from that build's
 collection and layout.
 
