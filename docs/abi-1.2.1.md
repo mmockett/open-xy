@@ -36,7 +36,7 @@ version is rejected. The output differs from stock in exactly these places:
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |
 | Project companions | 4 | Writes a [companion](projects.md) after every project save, and shows companions beside projects over MTP |
-| Aux modules | 3 optional | Lets Shift and an aux track's key put an [aux module](#aux-modules) on aux tracks 1..6, whose page then replaces M1 and whose controls its encoders edit |
+| Aux modules | 6 optional | Lets Shift and an aux track's key put an [aux module](#aux-modules) on aux tracks 1..6, whose page then replaces M1 and whose controls its encoders edit, and silences the track's stock module beneath it |
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
@@ -519,9 +519,22 @@ Aux tracks 1..8 are stock tracks 8..15: brain, punch-in, MIDI, CV, audio,
 tape and the two sends. One controller object (vtable `0803fb6c`) serves all
 of them; its page word `0801eae4` is 0..3 for M1..M4. The aux module edits are
 the profile's `aux` service, applied only when a selected machine declares
-[`aux`](api.md#aux-modules); every site is in `8c08…`, beyond a relative
-branch's reach of the module, so each hook replaces an eight-byte instruction
-group with an absolute call ([`aux_hooks.s`](../sdk/platform/opxy-1.2.1/aux_hooks.s)).
+[`aux`](api.md#aux-modules) ([`aux_hooks.s`](../sdk/platform/opxy-1.2.1/aux_hooks.s)).
+The controller's sites are in `8c08…`, beyond a relative branch's reach of
+the module, so each of those hooks replaces an eight-byte instruction group
+with an absolute call.
+
+**Holding a module.** A track holds a module as an instrument track holds an
+engine: by its engine ID in the engine word (`+0x18`) of each of its
+patterns, which `8d58781c` reads and the project serializer (`8d598ce8`)
+saves for every pattern of all 16 tracks. Stock leaves 18 there on aux tracks
+1..6. Choosing a module writes its ID into every pattern of the track; choosing
+the stock module writes 18 back. Track `t`'s patterns start at
+`[840a0524] + 0xd7c + t × 0x53f44`, `0x53f4` bytes apart, with their count at
+`+0x53f40` (`8d587708`). Every stock reader of the word on an aux track
+compares it only with stock engines (MIDI 29, Drumline 4, the sample engines),
+so a module's ID, a free synth ID, reads as an ordinary synth there. A
+firmware without the module shows the stock module.
 
 **Choosing.** Shift and a track key reach the global controller (`8c091dd0`),
 which opens the preset browser for tracks 0..7 and otherwise calls the aux
@@ -556,16 +569,30 @@ audio and tape tracks reaches only words 0..3, and a module's controls leave
 its stock module's alone (the brain and MIDI tracks' own M1 paths have not
 been traced). Stock saves all eight words of every track.
 
-**Macros.** Once a frame, from the compositor's first slot, each module
-control with a macro target passes a changed value to stock's set
+**Macros.** Once a frame, from the compositor's first slot
+(`synth_controls.cpp`, linked in every build and idle without an aux module),
+each module control with a macro target passes a changed value to stock's set
 `8d5acf28(project, track, index, value)` for every instrument track 0..7 whose
 stored word differs. That stores the word and sends it to the audio side
-(message 0xa1) as an edit does. The targets are the instrument controller's
-words for M2 and M3 (its table at `8400e1bc`): attack 8, decay 9, sustain 10,
-release 11, cutoff 16 and resonance 17. When a module is put on a track, each
-macro control first takes its target's stored value on track 0.
+(message 0xa1) as an edit does. A module newly found on a track, put there or
+loaded with a project, only takes its controls' values that frame, so loading
+a project never overwrites a track's own edits. The targets are the
+instrument controller's words for M2 and M3 (its table at `8400e1bc`): attack
+8, decay 9, sustain 10, release 11, cutoff 16 and resonance 17. When a module
+is put on a track, each macro control first takes its target's stored value
+on track 0.
 
-Which module a track holds is GUI state, not yet saved with the project:
-after a restart every aux track shows its stock module again, with the
-module's stored controls still in words 4..7. Stock's own module keeps
-running beneath; M2..M4 stay stock's.
+**Silencing the stock module.** Three more hooks keep a track's stock module
+quiet while a module holds the track:
+
+| Site | Replaces | Does |
+| --- | --- | --- |
+| `8d595738` | `LINK 0x4c`, the first instruction of stock's note start for a track (R1), which every sequenced and played note reaches; no caller reads a result | Returns at once for a module's track, so no MIDI or CV note, gate, punch-in step or tape clip starts; otherwise replays the LINK and continues |
+| `8d595752` | `CALL 8d587a0c` in that note start, which asks for the tracks routed to the brain (`8d587a0c(8)`, the brain track's pattern routing word `+0xc`) to transpose the note | Answers none while the brain track holds a module |
+| `8d58a730` | `LINK 0`, the first instruction of the external MIDI engine's CC send (track, parameter, value), which stock's publish (`8d5ace94`) calls for every parameter of the MIDI track | Returns at once for a module's track, so its controls send no CC |
+
+The note start's mask test and the CC send are also how an instrument track
+with the MIDI engine (29) plays; neither hook changes those tracks. M2..M4
+stay stock's: the aux LFO reaches the stock module's words 0..3, and the
+audio and tape tracks still pass whatever is routed to them on M2, which is
+nothing by default.

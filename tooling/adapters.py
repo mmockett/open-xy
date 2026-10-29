@@ -350,9 +350,11 @@ def generate_synth_controls(directory, machines):
         body.extend(['    default: return false;', '    }', '}'])
         formatters.append('\n'.join(body))
         page = not effect and paged(m.definition)
+        # An aux module's macro target words; other rows leave the fields zero.
+        aux = f", {{{aux_targets(m.definition)}}}, true" if aux_module(m.definition) else ''
         rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, "
                     f"{{{', '.join(map(str, steps))}}}, {m.prefix}_format, "
-                    f"{'true' if effect else 'false'}, {'true' if page else 'false'}}},")
+                    f"{'true' if effect else 'false'}, {'true' if page else 'false'}{aux}}},")
     return expand('synth_control_table.cpp.in', dict(READY_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows), FORMATTERS='\n'.join(formatters), LFO_MACHINES='\n'.join(lfo_rows)),
                   Path(directory) / 'synth_control_table.cpp')
 
@@ -371,6 +373,11 @@ def generate_project_companion_table(directory, machines):
                   Path(directory) / 'project_companion_table.cpp')
 
 
+def aux_targets(definition):
+    """An aux module's macro target word per control, -1 for none, as C++ initializers."""
+    return ', '.join(str(AUX_MACRO_TARGETS[t] if t else -1) for t in definition['aux'].get('macro', [None] * 4))
+
+
 def generate_aux_modules(directory, machines):
     """The collection's aux modules (definition "aux"): engine and page symbols, readiness,
     selector label and each control's macro target word."""
@@ -381,9 +388,8 @@ def generate_aux_modules(directory, machines):
         declarations += [f'int {m.prefix}_ready() __asm__("{m.prefix}_ready");',
                          f'extern const char {m.prefix}_engine_id[] __asm__("{m.prefix}_engine_id");',
                          f'extern const char {m.prefix}_page_id[] __asm__("{m.prefix}_page_id");']
-        macro = m.definition['aux'].get('macro', [None] * 4)
-        targets = ', '.join(str(AUX_MACRO_TARGETS[t] if t else -1) for t in macro)
-        rows.append(f'    {{{m.prefix}_engine_id, {m.prefix}_page_id, {m.prefix}_ready, "{m.native_name}", {{{targets}}}}},')
+        rows.append(f'    {{{m.prefix}_engine_id, {m.prefix}_page_id, {m.prefix}_ready, "{m.native_name}", '
+                    f'{{{aux_targets(m.definition)}}}}},')
     return expand('aux_module_table.cpp.in', dict(DECLARATIONS='\n'.join(declarations), MODULES='\n'.join(rows)),
                   Path(directory) / 'aux_module_table.cpp')
 

@@ -2,11 +2,18 @@
 // an aux track's key reach the auxiliary controller's selector (8c08f60c),
 // which stock opens only for the sends (tracks 14 and 15); for the other aux
 // tracks it lists the track's stock module and the collection's aux modules.
-// While a module is on a track, its page replaces M1 and the encoders on it
-// edit the module's controls, the track's words 4..7, through stock's editor,
-// which stores, locks and publishes them as any track parameter. Stock's own
-// module keeps running beneath, on words 0..3, and M2..M4 stay stock's.
-// GUI only; the choice is not saved with the project yet.
+//
+// A track holds a module the way an instrument track holds an engine: by its
+// ID in the engine word of each of its patterns, which stock saves with the
+// project (stock leaves 18 there on aux tracks). While a module is on a track,
+// its page replaces M1 and the encoders on it edit the module's controls, the
+// track's words 4..7, through stock's editor, which stores, locks and
+// publishes them as any track parameter. M2..M4 stay stock's.
+//
+// The track's stock module is silenced beneath it: its notes, live or
+// sequenced, never start (which is how MIDI, CV, punch-in and tape notes
+// play), the MIDI track sends no CC, and the brain transposes no routed track.
+// GUI only.
 #include "aux_modules.hpp"
 #include "stock.hpp"
 #include "stock_browser.hpp"
@@ -16,6 +23,8 @@ extern "C" {
 opxy::u32 sdk_aux_screen() __asm__("sdk_aux_screen");
 opxy::u32 sdk_aux_turn(opxy::u32, opxy::u32) __asm__("sdk_aux_turn");
 void sdk_aux_select(opxy::u32) __asm__("sdk_aux_select");
+opxy::u32 sdk_aux_silent(opxy::u32) __asm__("sdk_aux_silent");
+opxy::u32 sdk_aux_routing(opxy::u32) __asm__("sdk_aux_routing");
 }
 
 namespace {
@@ -29,25 +38,28 @@ namespace browser = opxy::platform::stock_browser;
 const u32 kAuxPage = 0x0801eae4;
 // The GUI's project, as both controllers pass it to stock's editor.
 const u32 kProject = 0x86bd027c;
+// The project stock's track getter (8d587708) reads: track t's patterns start
+// at + 0xd7c + t * 0x53f44, 0x53f4 bytes apart, their count at + 0x53f40, and
+// a pattern's engine word is at + 0x18 (8d58781c reads it; 8d598ce8 saves it).
+const u32 kTrackProject = 0x840a0524;
+const u32 kPatterns = 0xd7c, kTrackBytes = 0x53f44, kPatternBytes = 0x53f4, kPatternCount = 0x53f40;
+const u32 kEngineWord = 0x18;
+// Stock's engine word on an aux track, in every project it saves.
+const u32 kStockAuxEngine = 18;
 const char* const kStockModules[kAuxTracks] = {"brain", "punch-in", "midi", "cv", "audio", "tape"};
 
-// Each aux track's module, as its index + 1, or 0 for stock's.
-u8 chosen[kAuxTracks];
-// Each module control's value as last applied to the instrument tracks.
-i32 applied[kAuxTracks][4];
-
+// The module on an aux track: the ready one whose engine ID the track's
+// current pattern holds.
 const AuxModule* module(u32 track) {
-    const u32 a = track - kAuxFirst;
-    if (a >= kAuxTracks || !chosen[a]) return nullptr;
-    const AuxModule& m = sdk_aux_modules[chosen[a] - 1];
-    return m.ready() == 1 ? &m : nullptr;
+    if (track - kAuxFirst >= kAuxTracks) return nullptr;
+    const u32 engine = track_engine(track);
+    for (u32 i = 0; i < sdk_aux_module_count; ++i) {
+        const AuxModule& m = sdk_aux_modules[i];
+        if (m.engine() == engine) return m.ready() == 1 ? &m : nullptr;
+    }
+    return nullptr;
 }
 
-// A track's current word (stock's editor reads and writes these, 8d5ad5bc)
-// and the word the project stores (and saves).
-i32 current(u32 track, u32 slot) {
-    return *reinterpret_cast<const volatile i32*>(stock<u32(u32)>(0x8d587708)(track) + 0x3864 + slot * 4);
-}
 i32 stored(u32 track, u32 slot) {
     return *reinterpret_cast<const volatile i32*>(kProject + 0x4080 + track * 0xe8 + slot * 4);
 }
@@ -55,40 +67,26 @@ i32 stored(u32 track, u32 slot) {
 // as for any edit.
 void set(u32 track, u32 slot, i32 value) { stock<void(u32, u32, u32, i32)>(0x8d5acf28)(kProject, track, slot, value); }
 
-// Once a frame (sdk_send_refresh): a macro control that moved sets its
-// parameter on every instrument track that does not already hold the value.
-void tick() {
-    for (u32 a = 0; a < kAuxTracks; ++a) {
-        const AuxModule* m = module(kAuxFirst + a);
-        if (!m) continue;
-        for (u32 i = 0; i < 4; ++i) {
-            if (m->macro[i] < 0) continue;
-            const i32 value = current(kAuxFirst + a, kAuxControlWord + i);
-            if (value == applied[a][i]) continue;
-            applied[a][i] = value;
-            for (u32 track = 0; track < kTracks; ++track)
-                if (stored(track, static_cast<u32>(m->macro[i])) != value)
-                    set(track, static_cast<u32>(m->macro[i]), value);
-        }
-    }
+// Puts an engine ID in every pattern of a track, as stock keeps one per pattern.
+void hold(u32 track, u32 engine) {
+    const u32 project = word(kTrackProject);
+    if (!project) return;
+    const u32 patterns = project + kPatterns + track * kTrackBytes;
+    const u32 count = word(patterns + kPatternCount);
+    for (u32 i = 0; i < count && i < 16; ++i)
+        *reinterpret_cast<volatile u32*>(patterns + i * kPatternBytes + kEngineWord) = engine;
 }
 
 // A module put on a track: each macro control picks up its parameter from
-// instrument track 1, so the other tracks follow only once it is turned.
+// instrument track 1. The frame's refresh (synth_controls.cpp) then takes these
+// values, so the other tracks follow only once a control is turned.
 void place(u32 track, u32 choice) {
-    const u32 a = track - kAuxFirst;
-    if (a >= kAuxTracks) return;
-    chosen[a] = static_cast<u8>(choice);
-    const AuxModule* m = module(track);
-    sdk_aux_engines[a] = m ? m->engine() : 0;
-    sdk_aux_tick = tick;
-    if (!m) return;
-    for (u32 i = 0; i < 4; ++i) {
-        if (m->macro[i] < 0) continue;
-        const i32 value = stored(0, static_cast<u32>(m->macro[i]));
-        set(track, kAuxControlWord + i, value);
-        applied[a][i] = value;
-    }
+    if (track - kAuxFirst >= kAuxTracks || choice > sdk_aux_module_count) return;
+    const AuxModule* m = choice ? &sdk_aux_modules[choice - 1] : nullptr;
+    hold(track, m ? m->engine() : kStockAuxEngine);
+    if (!m || module(track) != m) return;
+    for (u32 i = 0; i < 4; ++i)
+        if (m->macro[i] >= 0) set(track, kAuxControlWord + i, stored(0, static_cast<u32>(m->macro[i])));
 }
 
 // The open selector: its track, and which module each row after the first is.
@@ -105,10 +103,11 @@ void sdk_aux_select(u32 track) {
     if (a >= kAuxTracks) return;
     const char* labels[kAuxModuleLimit + 1] = {kStockModules[a]};
     rows[0] = 0;
+    const AuxModule* current = module(track);
     u32 count = 1, initial = 0;
     for (u32 i = 0; i < sdk_aux_module_count && count <= kAuxModuleLimit; ++i) {
         if (sdk_aux_modules[i].ready() != 1) continue;
-        if (chosen[a] == i + 1) initial = count;
+        if (current == &sdk_aux_modules[i]) initial = count;
         labels[count] = sdk_aux_modules[i].label;
         rows[count++] = static_cast<u8>(i + 1);
     }
@@ -145,4 +144,17 @@ u32 sdk_aux_turn(u32 encoder, u32 event) {
         stock<u32(u32, u32, u32, u32)>(0x8d5ad5bc)(kProject, track, slot, event);
     }
     return 1;
+}
+
+// 8d595738 and 8d58a730 (aux_hooks.s): 1 when a track holds a module, so its
+// stock module neither starts a note (stock's note start for every track,
+// sequenced or played) nor sends a MIDI CC (the MIDI track's, on every
+// parameter it publishes).
+u32 sdk_aux_silent(u32 track) { return module(track) != nullptr; }
+
+// 8d595752: a note start asks for the tracks routed to the brain (aux track 1,
+// 8d587a0c(8)) to transpose the note; none while the brain track holds a module.
+u32 sdk_aux_routing(u32 track) {
+    if (track == kAuxFirst && module(track)) return 0;
+    return stock<u32(u32)>(0x8d587a0c)(track);
 }

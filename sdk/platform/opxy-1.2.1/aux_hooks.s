@@ -75,3 +75,50 @@ sdk_aux_select_hook:
     UNLINK;
     RTS;
 .size sdk_aux_select_hook, .-sdk_aux_select_hook
+
+/* The stock module beneath a module, silenced. Both hooks replace a function's
+ * first instruction with a jump here (call: false). When C++ says the track
+ * holds a module, the stub returns to the function's caller at once; otherwise
+ * it replays the replaced LINK and continues in stock. P1 carries the
+ * continuation: it is no argument, and stock writes it before reading it. */
+.extern sdk_aux_silent
+
+/* 8d595738: stock's note start for a track (R1), sequenced or played, with
+ * LINK 0x4c first. No caller reads a result. */
+.global sdk_aux_note_hook
+.type sdk_aux_note_hook, STT_FUNC
+sdk_aux_note_hook:
+    HOOK_SAVE
+    R0 = [SP + 16];     /* the saved R1 */
+    CALL sdk_aux_silent;
+    CC = R0 == 0;
+    IF CC JUMP 1f;
+    HOOK_RESTORE
+    RTS;
+1:
+    HOOK_RESTORE
+    LINK 0x4c;
+    P1.L = 0x573c;
+    P1.H = 0x8d59;
+    JUMP (P1);
+.size sdk_aux_note_hook, .-sdk_aux_note_hook
+
+/* 8d58a730: the MIDI track's CC for a parameter it publishes (R0 the track,
+ * R1 the parameter, R2 the value), with LINK 0 first. It returns nothing. */
+.global sdk_aux_midi_hook
+.type sdk_aux_midi_hook, STT_FUNC
+sdk_aux_midi_hook:
+    HOOK_SAVE
+    R0 = [SP + 12];     /* the saved R0 */
+    CALL sdk_aux_silent;
+    CC = R0 == 0;
+    IF CC JUMP 1f;
+    HOOK_RESTORE
+    RTS;
+1:
+    HOOK_RESTORE
+    LINK 0;
+    P1.L = 0xa734;
+    P1.H = 0x8d58;
+    JUMP (P1);
+.size sdk_aux_midi_hook, .-sdk_aux_midi_hook

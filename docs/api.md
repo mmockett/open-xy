@@ -503,15 +503,18 @@ The module draws its page with the [display API](display.md) as any synth
 does; `input.track` is its aux track, 8..13. Its voice never plays: give it a
 silent `render`.
 
-Limits, while this is a draft:
+The track keeps its module the way an instrument track keeps its engine, in
+each of its patterns, so it is saved with the project and back after a
+restart. While a module holds a track, the track's stock module is silent:
+its notes, played or sequenced, start nothing (no MIDI or CV note, gate,
+punch-in step or tape clip), the MIDI track sends no CC, and the brain
+transposes no routed track.
 
-- Which module an aux track holds is not saved yet. After a restart every aux
-  track shows its stock module; the module's controls keep their saved values.
-- The stock module keeps running beneath, on its own controls: the brain still
-  transposes routed tracks, MIDI and CV still send notes, audio and tape still
-  pass their routed audio. Prefer a track whose stock module is idle.
+Limits:
+
 - M2..M4 stay the track's stock pages, and its LFO reaches the stock
-  module's controls, not the aux module's.
+  module's controls, not the aux module's. Audio and tape still pass whatever
+  is routed to them on M2, which is nothing by default.
 - The sends (aux tracks 7 and 8) keep their effects.
 
 The [firmware contract](abi-1.2.1.md#aux-modules) describes the hooks.

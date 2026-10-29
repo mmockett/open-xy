@@ -246,6 +246,12 @@ class Definitions(unittest.TestCase):
             text = generate_aux_modules(directory, machines).read_text(encoding='utf-8')
         self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, \w+_page_id, \w+_ready, "(\w+)", \{([-\d, ]+)\}\},$', text, re.M),
                          [('macro', 'macro', '16, -1, 8, 11')])
+        # The always-linked control table marks only the aux module's row, which
+        # the frame's macros and its page find from a track's engine word.
+        with tempfile.TemporaryDirectory() as directory:
+            text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
+        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*_format, false, false(.*)\},$', text, re.M),
+                         [('macro', ', {16, -1, 8, 11}, true'), ('plain', '')])
 
     def test_an_effects_controls_after_four_alternate_on_the_send_page(self):
         # Without `control`, an effect's fifth to eighth controls alternate on positions 0..3.

@@ -832,6 +832,39 @@
     },
     {
       "kind": "hook",
+      "name": "Aux modules: a module's track starts no stock note",
+      "address": "0x8d595738",
+      "file_offset": "0x1cc994",
+      "length": 4,
+      "before": "00e81300",
+      "symbol": "sdk_aux_note_hook",
+      "service": "aux",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "name": "Aux modules: the brain transposes nothing while it holds a module",
+      "address": "0x8d595752",
+      "file_offset": "0x1cc9ae",
+      "length": 4,
+      "before": "ffe35d91",
+      "symbol": "sdk_aux_routing",
+      "service": "aux",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Aux modules: the MIDI track sends no CC while it holds a module",
+      "address": "0x8d58a730",
+      "file_offset": "0x1c198c",
+      "length": 4,
+      "before": "00e80000",
+      "symbol": "sdk_aux_midi_hook",
+      "service": "aux",
+      "call": false
+    },
+    {
+      "kind": "hook",
       "address": "0x8c0b15aa",
       "file_offset": "0xe87e6",
       "length": 8,

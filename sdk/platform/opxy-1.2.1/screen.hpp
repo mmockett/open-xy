@@ -164,11 +164,10 @@ inline bool read_shown(const Parameters* p, Controls& controls, u32 (&view)[para
 // each frame as stock does: the engine record's names, and the machine's
 // captions or stock's 00..99.
 inline bool aux_controls(Base* o, Controls& controls) {
-    const u32 a = controls.track - 8;
-    const u32 engine = a < 6 ? sdk_aux_engines[a] : 0;
-    if (!engine) return false;
+    const platform::SynthControls* m = sdk_aux_controls(controls.track);
+    if (!m) return false;
+    const u32 engine = m->engine();
     const u32 words = stock<u32(u32)>(0x8d587708)(controls.track) + 0x3864 + 4 * 4;
-    const platform::SynthControls* m = sdk_synth_controls_of(engine);
     for (u32 i = 0; i < parameter_slots; ++i) controls.slots[i] = 0;
     for (u32 i = 0; i < page_controls; ++i) {
         const i32 value = reinterpret_cast<const volatile i32*>(words)[i];
@@ -176,7 +175,7 @@ inline bool aux_controls(Base* o, Controls& controls) {
         controls.slots[i] = controls.values[i] = value;
         set_text(o->titles[i], stock<const char*(u32, u32)>(0x8d506c4c)(engine, i));
         char text[16];
-        if (!m || !m->format(i, value, text)) {
+        if (!m->format(i, value, text)) {
             const u32 n = value < 0 ? 0 : (static_cast<u32>(value) >> 8) * 100 >> 23;
             text[0] = static_cast<char>('0' + n / 10 % 10);
             text[1] = static_cast<char>('0' + n % 10);
