@@ -25,6 +25,11 @@ struct SynthControls {
     // parameter word it sets on tracks 0..7, or -1. Other rows leave both 0.
     signed char macro[4];
     bool aux;
+    // An effect's shift row (SDK 1.5, shift_row.hpp): its control count, each
+    // one's choice count, and titles; formats caption it as slots 8..11.
+    u8 shift;
+    u8 shift_choices[4];
+    const char* const* shift_titles;
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
 };
 // GUI-only, bounded one-decimal formatting. Caller provides 16 bytes.

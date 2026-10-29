@@ -14,7 +14,8 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, aux_module, paged, stock_name, validate_definition
+from .definitions import (ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, aux_module, paged, shift_parameters, stock_name,
+                          validate_definition)
 from .formats import require
 from .pipeline import config
 
@@ -28,7 +29,7 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'sources', 'includ
 # its tempo (resources.transport) and division captions; 1.3 the machine's own presets,
 # a press that switches a synth's whole page and up to 16 display text slots.
 # 1.4 adds the reusable header and partial second pages sharing unassigned controls;
-# 1.5 aux modules, synths that go on aux tracks 1..6 ("aux").
+# 1.5 aux modules, synths that go on aux tracks 1..6 ("aux"), and effects' pages and shift rows.
 SDK_VERSION = (1, 5)
 # Builder card glyph: SVG path data in a 46 x 48 box, drawn as a stroke.
 ICON = re.compile(r'[MLHVCSQTAZmlhvcsqtaz][MLHVCSQTAZmlhvcsqtaz0-9 .,-]{0,511}')
@@ -222,6 +223,10 @@ def machine_at(root, identity=None):
             require_sdk(version, (1, 4), 'A partially filled second page')
     if aux_module(definition):
         require_sdk(version, (1, 5), 'An aux module ("aux")')
+    if kind == 'effect' and paged(definition):
+        require_sdk(version, (1, 5), 'An effect whose press switches the page ("press": "page")')
+    if shift_parameters(definition):
+        require_sdk(version, (1, 5), 'An effect\'s shift row ("shift")')
     if kind == 'synth' and definition['resources']['display']['texts'] > SDK_1_2_TEXTS:
         require_sdk(version, (1, 3), 'More than %d display text slots' % SDK_1_2_TEXTS)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')

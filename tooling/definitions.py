@@ -94,6 +94,9 @@ SYNTH_POSITIONS = 4
 # 1..8, or null: stock's track parameter words, by their page and position.
 AUX_MACRO_TARGETS = {'attack': 8, 'decay': 9, 'sustain': 10, 'release': 11, 'cutoff': 16, 'resonance': 17}
 AUX_PRESET_LIMIT = 32  # aux_modules.hpp kAuxPresetLimit
+# An effect's shift row (SDK 1.5) packs its choices into one Q31 word; this many
+# combinations keep each one's bucket over a thousand codes wide.
+SHIFT_STATES = 1 << 20
 
 
 def control_positions(definition):
@@ -114,7 +117,7 @@ def paged(definition):
 
 def validate_definition(value, kind):
     keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources',
-                 *(k for k in ('press', 'aux') if k in value)), 'definition')
+                 *(k for k in ('press', 'aux', 'shift') if k in value)), 'definition')
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
     stock_name(value['id']); label(value['name'])
     resources = value['resources']
@@ -161,9 +164,11 @@ def validate_definition(value, kind):
     # Two pages share positions with no alternate; no duplicate saved parameters.
     if 'press' in value:
         alternates = control_positions(value)[SYNTH_POSITIONS:]
-        require(kind == 'synth' and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
+        require(kind in ('synth', 'effect') and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
                 len(set(alternates)) == len(alternates),
-                '"press": "page" needs five to eight synth parameters and at most one alternate per position')
+                '"press": "page" needs five to eight synth or effect parameters and at most one alternate per position')
+    if 'shift' in value:
+        validate_shift(value['shift'], kind, set(names))
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     for name, preset in value['presets'].items():
         label(name); keys(preset, names, 'preset')
@@ -171,6 +176,26 @@ def validate_definition(value, kind):
     if 'aux' in value:
         validate_aux(value['aux'], kind, parameters, value.get('press'), value['presets'])
     return value
+
+
+def validate_shift(shift, kind, names):
+    # An effect's shift row: one to four enum controls that Shift and the send
+    # page's encoders choose, packed into one send-track word (synth_controls.cpp).
+    require(kind == 'effect' and isinstance(shift, list) and 1 <= len(shift) <= SYNTH_POSITIONS,
+            'An effect\'s shift row holds one to four controls')
+    count = 1
+    for parameter in shift:
+        validate_parameter(parameter)
+        require(parameter['mapping']['kind'] == 'enum', 'A shift-row control is an enum')
+        require(parameter['id'] not in names, 'Duplicate parameter identity')
+        names.add(parameter['id'])
+        count *= len(parameter['mapping']['labels'])
+    require(count <= SHIFT_STATES, 'A shift row holds at most %d combinations of its choices' % SHIFT_STATES)
+
+
+def shift_parameters(definition):
+    """An effect's shift-row controls (SDK 1.5), or none."""
+    return definition.get('shift', [])
 
 
 def validate_aux(aux, kind, parameters, press, presets):
