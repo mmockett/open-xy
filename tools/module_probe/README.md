@@ -1,11 +1,12 @@
 # Module probe (experiment, local only)
 
-Can machines load from files instead of the boot partition? This probe answers
-the two questions that decide it, on the device:
+Can machines load from files instead of the boot partition? The probe answers
+the questions that decide it, on the device, on both of its processors: the
+main board (the SDK's GUI role) and the DSP board (the audio role, which
+renders voices). Each runs its own copy of the module.
 
-1. Can the module read a file when machines register at startup (synth
-   initializer, audio and GUI roles; screen factory), and which path form
-   reaches the files MTP shows?
+1. Can the module read a file when machines register at startup, and which
+   path form reaches the files MTP shows?
 2. Can the module copy code it read into its own memory, sync the caches and
    call it?
 
@@ -14,67 +15,77 @@ called from `startup.cpp.in` (stages 1–3) and `project_companion.cpp`
 (stage 4, project save). Branch `exp/module-file-probe`, from
 `open-xy-aux-samples` at `1f38077`, the tree behind the `combined-*` builds.
 
-## Build
+| Stage | Board | Where |
+| --- | --- | --- |
+| 1 | DSP | synth initializer ("init engines", about 8.0 s) |
+| 2 | main | synth initializer (about 7.6 s) |
+| 3 | main | screen factory (about 9.0 s) |
+| 4 | main | project save |
 
-`module-probe-004` is `combined-004` (on the device as of 2026-10-29; Lint's
-controls reordered) plus the probe: the same layout, catalog, screens and
-machine objects. Only `os.ldr` differs (sha256 `942fc2d3…`; combined-004 is
-`30914b34…`), and only `startup.o` and `project_companion.o` change, plus the
-two probe objects. The Nonagon session built it and stages it; earlier probe
-builds (002, 003) match firmware no longer on the device.
-If the device moves on to another build, rebuild the probe from that build's
-collection and layout.
+Every stage tries each path form until one opens, then keeps to that form.
+Each stage reports through stock's logger (`0x8c042efc`, as
+`producer_factory.cpp` calls it), so both boards' results land in
+`/logs/log_*.txt`. The main board also writes `probe-log.txt` beside the file;
+the DSP board never writes files.
+
+## Probe 2: module-probe-dsp-001
+
+`module-probe-dsp-001` is `combined-004` plus probe 2: the same layout,
+catalog, screens and machine objects. Only `os.ldr` differs (sha256
+`698d4c77…`; combined-004 is `30914b34…`), and only `startup.o` and
+`project_companion.o` change, plus the two probe objects. If the device's
+firmware has moved on from combined-004, rebuild from that build's collection
+and layout first.
 
 ```sh
-python tools/module_probe/make_probe_files.py <out>   # probe-read.bin, probe-run.bin
+python tools/module_probe/make_probe_files.py <out>
 ```
 
-| File | Flags | Does |
-| --- | --- | --- |
-| `probe-read.bin` | 1 | GUI stages read it; the audio role reads it once the GUI has found it |
-| `probe-run.bin` | 3 | Also copies 16 bytes of code into the module, syncs caches, calls it with `11111111`; expects `0325476c` |
+| File | Flags | CRC-32 | Does |
+| --- | --- | --- | --- |
+| `probe-read.bin` | 0 | `723bdb25` | Both boards read it |
+| `probe-run.bin` | 2 | `f7c3f9ea` | The main board also copies 16 bytes of code into its module, syncs caches, calls it with `11111111`; expects `0325476c` |
+| `probe-run-dsp.bin` | 6 | `2742ba35` | Both boards run the code |
 
-Without a probe file the GUI stages still try four `fopen` calls each, and
-write nothing.
+Without a probe file each stage only tries four `fopen` calls. The DSP board's
+stage 1 now tries them unconditionally: that is the test.
 
 ## On the device
 
 Every step needs the player's go-ahead, and the device is shared: coordinate
-with the session that owns the combined firmware first.
+with the session that owns device installs first.
 
 1. te-boot MTP; back up `/os.ldr` and `/layout.json` (docs/device.md in OP-XY-Dev).
 2. Copy the probe's `os.ldr` to `/os.ldr` and `probe-read.bin` to `/probe.bin`;
    read `os.ldr` back and compare its hash. Write the OS: power off, hold
    COM while switching on, track 3 (dev menu), track 5; power-cycle. (Track 3
    then track 2 is MTP.)
-3. Boot normally, open a project, play a custom synth, save a project.
-4. te-boot MTP; `get /probe-log.txt`; also the newest `/logs/log_*.txt`.
-5. If the log shows reads at startup: replace `/probe.bin` with
-   `probe-run.bin`, restart (no OS write), read the log again.
+3. Boot normally, play a custom synth, save a project.
+4. te-boot MTP; get the newest `/logs/log_*.txt` and `/probe-log.txt`;
+   `grep module_probe` the log.
+5. If the DSP read the file: replace `/probe.bin` with `probe-run-dsp.bin`,
+   restart (no OS write), boot, play a synth, read the log again.
 6. Undo: put the backed-up `os.ldr` back, write the OS as in step 2, remove
    `/probe.bin` and `/probe-log.txt`.
 
-The log is also tried at `/fat32/projects/probe-log.oxy` (normal-mode MTP)
-when the probe was found as `/fat32/projects/probe.oxy`.
+## Reading the results
 
-## Reading the log
+Log lines: `module_probe[<stage>]: probe <board> stage start`, then
+`probe <board> call <n>: opened <mask> bytes <n> crc <crc32> flags <f> run
+<state> <result>/<expected> [match]`. `opened` is a bit mask over
+`probe.bin`, `/yaffs2/probe.bin`, `/probe.bin`, `/fat32/projects/probe.oxy`.
+Run state 0 is none, 1 about to call, 2 returned.
 
-`found:` is the path form that opened. Events list `sequence stage gui
-opened-forms bytes crc32`; stages are 1 synth initializer on the audio role,
-2 on the GUI role, 3 screen factory, 4 project save. `opened-forms` is a bit
-mask over `probe.bin`, `/yaffs2/probe.bin`, `/probe.bin`,
-`/fat32/projects/probe.oxy`. The CRC of `probe-read.bin` is `dd7f4962`.
-
-| Log | Means |
+| DSP log (stage 1) | Means |
 | --- | --- |
-| Stage 2 opened in the first events | Files can be read before any synth registers: a boot loader can work as designed |
-| Only stage 3 or 4 opened | Files become readable later; a loader has to load at the screen factory or delay registration |
-| No log; device boots | No path form reached the file. Try the other forms, or another location |
-| Device halts at boot | `fopen` is unsafe that early. Undo from te-boot (it does not depend on the OS) |
-| `run: state 1` and the device halted | Code written to module memory can't be fetched (CPLB or caches) |
-| `run: state 2 … (match)` | Code read from a file runs in the module |
+| `opened 00000001 … crc 723bdb25` | The DSP board reads files at engine start: a loader can work on both boards |
+| `opened 00000000`, main board found it | newlib on the DSP doesn't reach the files. A loader has to get code to the DSP another way (the main board, over the bridge) |
+| `stage start` and no `call` line; device halts | `fopen` hangs or faults on the DSP at that point. Undo from te-boot |
+| No `module_probe[1]` line at all | The DSP's logger lines didn't arrive, or stage 1 didn't run: inconclusive |
+| `probe about to run code` last, device halted | The DSP can't fetch code written to module memory |
+| `run 2 0325476c/0325476c match` | Code read from a file runs on the DSP |
 
-## Results: module-probe-004, 2026-10-29
+## Results, probe 1: module-probe-004, 2026-10-29
 
 Run by the Nonagon session with the player's approval. Logs:
 `~/Library/Application Support/OPXY-SDK/private/device-backup-20261029-probe4/`
@@ -113,10 +124,8 @@ What this settles for a loader:
   synth registers, and code copied from it into module memory runs after a
   cache flush. Screens and GUI code could load from files today.
 - DSP board: open. Voices render there, so a loader has to work there too.
-  The next probe lets the DSP read on its own at stage 1 and report back. It
-  can't write the log through the main board's memory, so it needs its own
-  channel: its own `probe-log-dsp.txt` through newlib, or the stock logger
-  that writes the `I` lines (address not yet found).
+  Probe 2 (above) lets the DSP read on its own at stage 1 and report
+  through stock's logger.
 
 Not verified: whether `/yaffs2` and `/fat32` are mount names (they come from
 strings in the stock OS); the forms other than `probe.bin` were not reached

@@ -1,7 +1,8 @@
 """Writes the module probe's files (sdk/platform/opxy-1.2.1/module_probe.cpp).
 
-probe-read.bin  reads on the GUI role, then on the audio role once the GUI has found it
-probe-run.bin   also copies the code into the module and calls it once
+probe-read.bin      both boards read it; nothing runs
+probe-run.bin       the main board also copies the code into its module and calls it once
+probe-run-dsp.bin   both boards run the code
 
     python tools/module_probe/make_probe_files.py <out folder>
 """
@@ -14,7 +15,7 @@ import tempfile
 HERE = Path(__file__).resolve().parent
 BIN = HERE.parents[1] / 'local' / 'toolchain' / 'bin'
 ARGUMENT = 0x11111111
-AUDIO_READ, RUN_CODE = 1, 2
+RUN_MAIN, RUN_DSP = 2, 4
 
 
 def code():
@@ -34,8 +35,9 @@ def main(out):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     body = code()
-    (out / 'probe-read.bin').write_bytes(probe_file(AUDIO_READ, body))
-    (out / 'probe-run.bin').write_bytes(probe_file(AUDIO_READ | RUN_CODE, body))
+    (out / 'probe-read.bin').write_bytes(probe_file(0, body))
+    (out / 'probe-run.bin').write_bytes(probe_file(RUN_MAIN, body))
+    (out / 'probe-run-dsp.bin').write_bytes(probe_file(RUN_MAIN | RUN_DSP, body))
     print(f'{len(body)} code bytes; expected result {((ARGUMENT ^ 0x12345678) + 3) & 0xffffffff:08x}; files in {out}')
 
 
