@@ -7,7 +7,7 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 | --- | --- | --- |
 | `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment` | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
 | `sample` | `sample.cpp` with `Voice` state; the stock sample page is its screen | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
-| `effect` | `fx.cpp` with `State`; the stock FX page is its screen | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
+| `effect` | `fx.cpp` with `State`; the stock FX page is its screen, or its own (SDK 1.5) | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
 
 The [first-machine walkthrough](first-machine.md) creates a standalone synth
 and previews it without native integration. SDK adapters own allocation,
@@ -457,6 +457,19 @@ const opxy::u32 order = ((static_cast<opxy::u32>(parameters[8]) >> 16) * 3) >> 1
 Its `State` is then 4 bytes smaller than otherwise (the slot keeps the send's
 number). See the [firmware contract](abi-1.2.1.md#effect-pages-and-shift-rows).
 
+### Effect pages
+
+An effect may draw its own page on the send tracks (SDK 1.5): it declares
+`resources.display` and supplies `display.h`, `display.cpp` and
+`panel.svg.fragment`, exactly as a synth does ([display API](display.md)), and
+asks for a page from 82..127 in its identity. Stock shows the page an effect's
+record names on M1 of a send, so the page replaces stock's FX page there; its
+header names and captions the effect's controls, or its shift row's while
+Shift is held, and the display reads them all, the shift row too
+([input](display.md#effect-pages-sdk-15)). Effects have no browser preview
+yet. An effect that comes to draw its own page keeps its effect number and is
+given a page in its firmware's layout.
+
 ### Effect buffers
 
 An effect that needs memory beyond its state, such as a delay line, declares
@@ -612,7 +625,7 @@ firmware that holds it.
 | --- | --- | --- |
 | `synth` | 34..62 | Its own screen: 82..127 |
 | `sample` | 34..62 | Stock sample page 2 or 7; `padSettings` requires 7 |
-| `effect` | 1, 8, 11, 21, 23..28 or 34..62 | Stock FX page 21 |
+| `effect` | 1, 8, 11, 21, 23..28 or 34..62 | Stock FX page 21, or its own: 82..127 |
 
 Engine IDs above 32, effect IDs above 18 and pages above 81 exist only in the
 relocated stock tables.
