@@ -85,6 +85,31 @@ Run state 0 is none, 1 about to call, 2 returned.
 | `probe about to run code` last, device halted | The DSP can't fetch code written to module memory |
 | `run 2 0325476c/0325476c match` | Code read from a file runs on the DSP |
 
+## Results, probe 2: module-probe-dsp-001, 2026-10-29
+
+Run by the Nonagon session with the player's approval; combined-004 restored
+afterwards. Logs: `~/Library/Application Support/OPXY-SDK/private/device-backup-20261029-probe-dsp/`
+(`dev-read.txt`, `dev-run.txt`, `probe-log-read.txt`, `probe-log-run.txt`).
+Both boots were normal.
+
+| Test | Board | Log |
+| --- | --- | --- |
+| Read | DSP, stage 1 | `8.016.510: I module_probe[1]: probe dsp call 1: opened 00000001 bytes 48 crc 723bdb25`; its timing log puts "init engines" at 8.015530 s |
+| Read | main, stages 2, 3, 4 | 7.635 s, 9.075 s, each save; form `00000001`, 48 bytes, `723bdb25` |
+| Run | DSP, stage 1 | `probe about to run code`, then `run 2 0325476c/0325476c match` at 2.880 s (a faster boot; engines at 2.879 s) |
+| Run | main, stages 2, 3, 4 | `match` at each |
+
+**Both processors can read a file from the te-boot MTP root (`probe.bin`)
+at the moment their engines start, before any synth registers, and run code
+copied from it into module memory after a cache flush.** The mechanism a
+loader needs works on the OP-XY as it is. Stock's logger at `0x8c042efc`
+carries `I` (DSP) and `bfm` (main) lines from module code into `/logs`.
+
+What a loader still has to settle (not tested here): loading the whole
+machine code, not 16 bytes; whether file reads are fast enough at boot for
+about 1 MB per board; hooks that keep stock behaviour when no module file is
+present; and both boards loading the same file version.
+
 ## Results, probe 1: module-probe-004, 2026-10-29
 
 Run by the Nonagon session with the player's approval. Logs:
