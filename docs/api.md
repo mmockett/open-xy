@@ -505,10 +505,15 @@ silent `render`.
 
 The track keeps its module the way an instrument track keeps its engine, in
 each of its patterns, so it is saved with the project and back after a
-restart. While a module holds a track, the track's stock module is silent:
-its notes, played or sequenced, start nothing (no MIDI or CV note, gate,
-punch-in step or tape clip), the MIDI track sends no CC, and the brain
-transposes no routed track.
+restart. The track's stock module keeps what doesn't fight the module and
+loses what would act unseen behind its page:
+
+- The MIDI and CV tracks play on: their notes, played or sequenced, still go
+  to external gear, and the MIDI track's M2 and M3 CCs still go out. Turning
+  the module's controls sends no CC.
+- On the brain, punch-in, audio and tape tracks, the track's own notes start
+  nothing, and the brain transposes no routed track. Punch-in keys held on the
+  punch-in track, or with Shift on another, still punch in.
 
 Limits:
 

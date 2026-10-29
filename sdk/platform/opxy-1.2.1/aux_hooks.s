@@ -76,12 +76,13 @@ sdk_aux_select_hook:
     RTS;
 .size sdk_aux_select_hook, .-sdk_aux_select_hook
 
-/* The stock module beneath a module, silenced. Both hooks replace a function's
- * first instruction with a jump here (call: false). When C++ says the track
- * holds a module, the stub returns to the function's caller at once; otherwise
- * it replays the replaced LINK and continues in stock. P1 carries the
- * continuation: it is no argument, and stock writes it before reading it. */
+/* The stock module beneath a module, quietened. Both hooks replace a
+ * function's first instruction with a jump here (call: false). When C++ says
+ * to drop the call, the stub returns to the function's caller at once;
+ * otherwise it replays the replaced LINK and continues in stock. P1 carries
+ * the continuation: it is no argument, and stock writes it before reading it. */
 .extern sdk_aux_silent
+.extern sdk_aux_quiet
 
 /* 8d595738: stock's note start for a track (R1), sequenced or played, with
  * LINK 0x4c first. No caller reads a result. */
@@ -109,8 +110,9 @@ sdk_aux_note_hook:
 .type sdk_aux_midi_hook, STT_FUNC
 sdk_aux_midi_hook:
     HOOK_SAVE
-    R0 = [SP + 12];     /* the saved R0 */
-    CALL sdk_aux_silent;
+    R0 = [SP + 12];     /* the saved R0 and R1 */
+    R1 = [SP + 16];
+    CALL sdk_aux_quiet;
     CC = R0 == 0;
     IF CC JUMP 1f;
     HOOK_RESTORE

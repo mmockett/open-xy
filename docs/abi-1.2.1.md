@@ -582,17 +582,20 @@ instrument controller's words for M2 and M3 (its table at `8400e1bc`): attack
 is put on a track, each macro control first takes its target's stored value
 on track 0.
 
-**Silencing the stock module.** Three more hooks keep a track's stock module
-quiet while a module holds the track:
+**The stock module beneath.** Three more hooks keep a track's stock module from
+acting unseen behind a module's page, while the MIDI and CV tracks, whose
+notes go to external gear and use none of a module's words, play on:
 
 | Site | Replaces | Does |
 | --- | --- | --- |
-| `8d595738` | `LINK 0x4c`, the first instruction of stock's note start for a track (R1), which every sequenced and played note reaches; no caller reads a result | Returns at once for a module's track, so no MIDI or CV note, gate, punch-in step or tape clip starts; otherwise replays the LINK and continues |
+| `8d595738` | `LINK 0x4c`, the first instruction of stock's note start for a track (R1), which every sequenced and played note reaches; no caller reads a result | Returns at once for a module's track other than MIDI (10) and CV (11), so the track's own notes start nothing there; otherwise replays the LINK and continues |
 | `8d595752` | `CALL 8d587a0c` in that note start, which asks for the tracks routed to the brain (`8d587a0c(8)`, the brain track's pattern routing word `+0xc`) to transpose the note | Answers none while the brain track holds a module |
-| `8d58a730` | `LINK 0`, the first instruction of the external MIDI engine's CC send (track, parameter, value), which stock's publish (`8d5ace94`) calls for every parameter of the MIDI track | Returns at once for a module's track, so its controls send no CC |
+| `8d58a730` | `LINK 0`, the first instruction of the external MIDI engine's CC send (track, parameter, value), which stock's publish (`8d5ace94`) calls for every parameter of the MIDI track | Returns at once for a module's controls (parameters 4..7), so turning them sends no CC; the stock pages' CCs go out |
 
 The note start's mask test and the CC send are also how an instrument track
-with the MIDI engine (29) plays; neither hook changes those tracks. M2..M4
+with the MIDI engine (29) plays; neither hook changes those tracks. Punch-in
+keys held on the punch-in track or with Shift reach stock's held-effect mask
+rather than a note start, so they are not dropped here. M2..M4
 stay stock's: the aux LFO reaches the stock module's words 0..3, and the
 audio and tape tracks still pass whatever is routed to them on M2, which is
 nothing by default.

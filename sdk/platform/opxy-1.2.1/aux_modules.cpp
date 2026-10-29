@@ -10,10 +10,12 @@
 // track's words 4..7, through stock's editor, which stores, locks and
 // publishes them as any track parameter. M2..M4 stay stock's.
 //
-// The track's stock module is silenced beneath it: its notes, live or
-// sequenced, never start (which is how MIDI, CV, punch-in and tape notes
-// play), the MIDI track sends no CC, and the brain transposes no routed track.
-// GUI only.
+// The stock module beneath keeps what doesn't fight the module and loses
+// what would act unseen. The MIDI and CV tracks still play their notes to
+// external gear, and the MIDI track sends no CC for the module's controls.
+// Elsewhere the track's own notes, live or sequenced, start nothing, and the
+// brain transposes no routed track: their own controls are behind the
+// module's page. GUI only.
 #include "aux_modules.hpp"
 #include "stock.hpp"
 #include "stock_browser.hpp"
@@ -24,6 +26,7 @@ opxy::u32 sdk_aux_screen() __asm__("sdk_aux_screen");
 opxy::u32 sdk_aux_turn(opxy::u32, opxy::u32) __asm__("sdk_aux_turn");
 void sdk_aux_select(opxy::u32) __asm__("sdk_aux_select");
 opxy::u32 sdk_aux_silent(opxy::u32) __asm__("sdk_aux_silent");
+opxy::u32 sdk_aux_quiet(opxy::u32, opxy::u32) __asm__("sdk_aux_quiet");
 opxy::u32 sdk_aux_routing(opxy::u32) __asm__("sdk_aux_routing");
 }
 
@@ -47,6 +50,8 @@ const u32 kEngineWord = 0x18;
 // Stock's engine word on an aux track, in every project it saves.
 const u32 kStockAuxEngine = 18;
 const char* const kStockModules[kAuxTracks] = {"brain", "punch-in", "midi", "cv", "audio", "tape"};
+// The tracks whose stock module plays on beneath a module: MIDI and CV.
+const u32 kMidiTrack = 10, kCvTrack = 11;
 
 // The module on an aux track: the ready one whose engine ID the track's
 // current pattern holds.
@@ -146,11 +151,17 @@ u32 sdk_aux_turn(u32 encoder, u32 event) {
     return 1;
 }
 
-// 8d595738 and 8d58a730 (aux_hooks.s): 1 when a track holds a module, so its
-// stock module neither starts a note (stock's note start for every track,
-// sequenced or played) nor sends a MIDI CC (the MIDI track's, on every
-// parameter it publishes).
-u32 sdk_aux_silent(u32 track) { return module(track) != nullptr; }
+// 8d595738 (aux_hooks.s): 1 drops a note start, sequenced or played, on a
+// track holding a module, except on the MIDI and CV tracks, whose notes go on
+// to external gear.
+u32 sdk_aux_silent(u32 track) { return track != kMidiTrack && track != kCvTrack && module(track); }
+
+// 8d58a730 (aux_hooks.s): 1 drops the MIDI track's CC for a parameter it
+// publishes when the parameter is one of a module's controls (words 4..7);
+// the stock pages' CCs still go out.
+u32 sdk_aux_quiet(u32 track, u32 parameter) {
+    return parameter - kAuxControlWord < 4 && module(track);
+}
 
 // 8d595752: a note start asks for the tracks routed to the brain (aux track 1,
 // 8d587a0c(8)) to transpose the note; none while the brain track holds a module.
