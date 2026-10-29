@@ -1,7 +1,9 @@
-// Stock OS 1.2.1 aux tracks 1..6 (tracks 8..13) with aux modules. Shift and
-// an aux track's key reach the auxiliary controller's selector (8c08f60c),
-// which stock opens only for the sends (tracks 14 and 15); for the other aux
-// tracks it lists the track's stock module and the collection's aux modules.
+// Stock OS 1.2.1 aux tracks 1..6 (tracks 8..13) with aux modules, chosen as
+// an instrument track's engine is: Shift and M1 list the track's stock module
+// and the collection's aux modules (on the sends, stock's effects), and Shift
+// and the track's key list the presets of the module on it. Stock's auxiliary
+// controller swallowed Shift and M1 on every aux track, and opened a selector
+// for Shift and the track's key (8c08f60c) only on the sends.
 //
 // A track holds a module the way an instrument track holds an engine: by its
 // ID in the engine word of each of its patterns, which stock saves with the
@@ -25,6 +27,8 @@ extern "C" {
 opxy::u32 sdk_aux_screen() __asm__("sdk_aux_screen");
 opxy::u32 sdk_aux_turn(opxy::u32, opxy::u32) __asm__("sdk_aux_turn");
 void sdk_aux_select(opxy::u32) __asm__("sdk_aux_select");
+void sdk_aux_engine_key() __asm__("sdk_aux_engine_key");
+void sdk_aux_preset_key(opxy::u32) __asm__("sdk_aux_preset_key");
 opxy::u32 sdk_aux_silent(opxy::u32) __asm__("sdk_aux_silent");
 opxy::u32 sdk_aux_quiet(opxy::u32, opxy::u32) __asm__("sdk_aux_quiet");
 opxy::u32 sdk_aux_routing(opxy::u32) __asm__("sdk_aux_routing");
@@ -52,6 +56,10 @@ const u32 kStockAuxEngine = 18;
 const char* const kStockModules[kAuxTracks] = {"brain", "punch-in", "midi", "cv", "audio", "tape"};
 // The tracks whose stock module plays on beneath a module: MIDI and CV.
 const u32 kMidiTrack = 10, kCvTrack = 11;
+// The send tracks, and the GUI's one auxiliary controller: its vtable, and its
+// static instance, constructed on first use, with its guard byte.
+const u32 kSendTracks = 14;
+const u32 kAuxController = 0x0803fb6c, kAuxInstance = 0x08014db4, kAuxInstanceGuard = 0x08014dc8;
 
 // The module on an aux track: the ready one whose engine ID the track's
 // current pattern holds.
@@ -94,19 +102,45 @@ void place(u32 track, u32 choice) {
         if (m->macro[i] >= 0) set(track, kAuxControlWord + i, stored(0, static_cast<u32>(m->macro[i])));
 }
 
-// The open selector: its track, and which module each row after the first is.
-browser::StockSelector<kAuxModuleLimit + 1> selector = {};
+// The open list, one at a time: modules or presets, its track, and what each
+// row is (a module's index + 1, or 0 for the stock module; or a preset).
+const u32 kRows = kAuxPresetLimit > kAuxModuleLimit + 1 ? kAuxPresetLimit : kAuxModuleLimit + 1;
+browser::StockSelector<kRows> selector = {};
 u32 selecting;
-u8 rows[kAuxModuleLimit + 1];
+u8 rows[kRows];
+const AuxModule* presenting;
 
 void choose(void*, u32 index) { place(selecting, rows[index]); }
+
+// A preset sets the module's four controls through stock's set, as turning
+// them would; the frame's macros then carry it to the instrument tracks.
+void recall(void*, u32 index) {
+    const AuxModule* m = module(selecting);
+    if (!m || m != presenting || index >= m->presets) return;
+    for (u32 i = 0; i < 4; ++i) set(selecting, kAuxControlWord + i, m->preset_values[index][i]);
 }
 
-// 8c08f624: the selector's exit for any track but a send; R4 holds the track.
+// Shift and the track's key on aux track 1..6: the presets of its module.
+void present(u32 track) {
+    const AuxModule* m = module(track);
+    if (!m || !m->presets) return;
+    const char* labels[kRows] = {};
+    const u32 count = m->presets < kRows ? m->presets : kRows;
+    for (u32 i = 0; i < count; ++i) labels[i] = m->preset_names[i];
+    selecting = track;
+    presenting = m;
+    // Titled as stock's preset browser is: the aux track's number over "preset".
+    selector.open("preset", labels, count, 0, browser::Callbacks{nullptr, recall, nullptr},
+                  static_cast<i32>(track - kAuxFirst));
+}
+}
+
+// Shift and M1 on aux track 1..6, or the selector stock opens for a send:
+// the track's stock module and the collection's aux modules.
 void sdk_aux_select(u32 track) {
     const u32 a = track - kAuxFirst;
     if (a >= kAuxTracks) return;
-    const char* labels[kAuxModuleLimit + 1] = {kStockModules[a]};
+    const char* labels[kRows] = {kStockModules[a]};
     rows[0] = 0;
     const AuxModule* current = module(track);
     u32 count = 1, initial = 0;
@@ -122,6 +156,24 @@ void sdk_aux_select(u32 track) {
     selector.open("aux", labels, count, initial, browser::Callbacks{nullptr, choose, nullptr},
                   static_cast<opxy::i32>(a));
 }
+
+// 8c08f6ec: Shift and M1 on any aux track, which stock's controller swallowed
+// (its Shift-key method, 8c08f6b0, for key code 6). On aux tracks 1..6 the
+// module list; on the sends, stock's effect list, as Shift and the send's key
+// open it (8c08f60c on the controller's instance).
+void sdk_aux_engine_key() {
+    const u32 track = byte(kSelectedTrack);
+    if (track - kAuxFirst < kAuxTracks) {
+        sdk_aux_select(track);
+    } else if (track - kSendTracks < 2 && byte(kAuxInstanceGuard) && word(kAuxInstance) == kAuxController) {
+        stock<void(u32, u32)>(0x8c08f60c)(kAuxInstance, track);
+    }
+}
+
+// 8c08f624: the exit of stock's selector for Shift and an aux track's key
+// (8c08f60c) on any track but a send; R4 holds the track. Aux tracks 1..6 list
+// their module's presets there, as an instrument track's key lists its engine's.
+void sdk_aux_preset_key(u32 track) { present(track); }
 
 // 8c08f540: the auxiliary controller's page choice (its method 11). On M1 of
 // a track with a module, the module's page; 0 leaves the choice to stock.

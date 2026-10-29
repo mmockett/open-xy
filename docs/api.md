@@ -480,11 +480,14 @@ Without `dryParameter`, the adapter returns unity to preserve the source dry.
 ## Aux modules
 
 An aux module (SDK 1.5) is a synth that goes on the OP-XY's aux tracks instead
-of its instrument tracks. On aux track 1..6 (brain, punch-in, MIDI, CV, audio,
-tape), Shift and the track's key open a list of the track's stock module and
-the firmware's aux modules, as Shift and a send's key list its effects. With a
-module chosen, the track's M1 shows the module's page and its encoders edit
-the module's four controls. Stock keeps them with the track like any track
+of its instrument tracks. An aux track takes one as an instrument track takes
+an engine: on aux track 1..6 (brain, punch-in, MIDI, CV, audio, tape), Shift
+and M1 open a list of the track's stock module and the firmware's aux modules,
+and Shift and the track's key then list the module's presets (`presets` in
+`definition.json`: at most 32, named in 1..15 characters). On the sends, Shift
+and M1 open the effect list, as Shift and the send's key do. With a module
+chosen, the track's M1 shows the module's page and its encoders edit the
+module's four controls. Stock keeps them with the track like any track
 parameter: they are saved, can be locked on steps and play with the pattern.
 The instrument engine menu never lists an aux module.
 

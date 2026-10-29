@@ -93,6 +93,7 @@ SYNTH_POSITIONS = 4
 # "macro" names, per control, the instrument-track parameter it sets on tracks
 # 1..8, or null: stock's track parameter words, by their page and position.
 AUX_MACRO_TARGETS = {'attack': 8, 'decay': 9, 'sustain': 10, 'release': 11, 'cutoff': 16, 'resonance': 17}
+AUX_PRESET_LIMIT = 32  # aux_modules.hpp kAuxPresetLimit
 
 
 def control_positions(definition):
@@ -163,20 +164,23 @@ def validate_definition(value, kind):
         require(kind == 'synth' and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
                 len(set(alternates)) == len(alternates),
                 '"press": "page" needs five to eight synth parameters and at most one alternate per position')
-    if 'aux' in value:
-        validate_aux(value['aux'], kind, parameters, value.get('press'))
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     for name, preset in value['presets'].items():
         label(name); keys(preset, names, 'preset')
         for default in preset.values(): number(default, 0, 1, 'preset value')
+    if 'aux' in value:
+        validate_aux(value['aux'], kind, parameters, value.get('press'), value['presets'])
     return value
 
 
-def validate_aux(aux, kind, parameters, press):
+def validate_aux(aux, kind, parameters, press, presets):
     # An aux track's page shows four controls, stored in the track's words 4..7.
     require(kind == 'synth' and len(parameters) == SYNTH_POSITIONS and press is None,
             'An aux module is a synth with exactly four controls')
     require(isinstance(aux, dict) and set(aux) <= {'macro'}, 'Unexpected aux fields')
+    # Shift and an aux track's key list the presets in the stock browser.
+    require(len(presets) <= AUX_PRESET_LIMIT and all(re.fullmatch(r'[ -~]{1,15}', name) for name in presets),
+            'An aux module lists at most %d presets, named in 1..15 printable characters' % AUX_PRESET_LIMIT)
     macro = aux.get('macro', [None] * SYNTH_POSITIONS)
     require(isinstance(macro, list) and len(macro) == SYNTH_POSITIONS and
             all(t is None or t in AUX_MACRO_TARGETS for t in macro),

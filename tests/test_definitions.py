@@ -230,11 +230,17 @@ class Definitions(unittest.TestCase):
         validate_definition(dict(value, aux={}), 'synth')
         rejected = [dict(value, aux={'macro': ['cutoff']}), dict(value, aux={'macro': ['volume'] * 4}),
                     dict(value, aux={'targets': []}), dict(value, aux=True)]
+        many = copy.deepcopy(value)
+        many['presets'] = {f'p{i}': dict(value['presets']['Init']) for i in range(33)}
+        rejected.append(many)
+        long_name = copy.deepcopy(value); long_name['presets'] = {'a preset too long': value['presets']['Init']}
+        rejected.append(long_name)
         longer = copy.deepcopy(value); longer['parameters'].append(self.alternate(0, 'p0'))
         for preset in longer['presets'].values(): preset['p0'] = 0
         rejected.append(longer)
         for bad in rejected:
-            with self.subTest(aux=bad['aux'], count=len(bad['parameters'])), self.assertRaises(ValueError):
+            with self.subTest(aux=bad['aux'], count=len(bad['parameters']), presets=len(bad['presets'])), \
+                    self.assertRaises(ValueError):
                 validate_definition(bad, 'synth')
         effect = copy.deepcopy(fixture('probefx').definition)
         effect['aux'] = {}
@@ -244,8 +250,11 @@ class Definitions(unittest.TestCase):
                     SimpleNamespace(kind='synth', prefix='plain', native_name='plain', definition=self.engine)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_aux_modules(directory, machines).read_text(encoding='utf-8')
-        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, \w+_page_id, \w+_ready, "(\w+)", \{([-\d, ]+)\}\},$', text, re.M),
-                         [('macro', 'macro', '16, -1, 8, 11')])
+        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, \w+_page_id, \w+_ready, "(\w+)", \{([-\d, ]+)\}, (.*)\},$', text, re.M),
+                         [('macro', 'macro', '16, -1, 8, 11', '1, macro_preset_names, macro_preset_values')])
+        # Its presets, as Shift and the track's key list them: names, and Q31 words in control order.
+        self.assertIn('macro_preset_names[] = {"Init"};', text)
+        self.assertIn('macro_preset_values[][4] = {{0, 1073741824, 1395864371, 0}};', text)
         # The always-linked control table marks only the aux module's row, which
         # the frame's macros and its page find from a track's engine word.
         with tempfile.TemporaryDirectory() as directory:

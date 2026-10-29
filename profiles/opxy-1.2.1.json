@@ -821,12 +821,23 @@
     },
     {
       "kind": "hook",
-      "name": "Aux modules: Shift and an aux track key choose its module",
+      "name": "Aux modules: Shift and an aux track's key list its module's presets",
       "address": "0x8c08f624",
       "file_offset": "0xc6860",
       "length": 8,
       "before": "a66c200501e80000",
-      "symbol": "sdk_aux_select_hook",
+      "symbol": "sdk_aux_preset_hook",
+      "service": "aux",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Aux modules: Shift and M1 choose what runs on an aux track",
+      "address": "0x8c08f6ec",
+      "file_offset": "0xc6928",
+      "length": 8,
+      "before": "01e8000008601000",
+      "symbol": "sdk_aux_engine_hook",
       "service": "aux",
       "call": true
     },

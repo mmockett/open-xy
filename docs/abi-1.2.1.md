@@ -36,7 +36,7 @@ version is rejected. The output differs from stock in exactly these places:
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |
 | Project companions | 4 | Writes a [companion](projects.md) after every project save, and shows companions beside projects over MTP |
-| Aux modules | 6 optional | Lets Shift and an aux track's key put an [aux module](#aux-modules) on aux tracks 1..6, whose page then replaces M1 and whose controls its encoders edit, and silences the track's stock module beneath it |
+| Aux modules | 7 optional | Lets Shift and an aux track's key put an [aux module](#aux-modules) on aux tracks 1..6, whose page then replaces M1 and whose controls its encoders edit, and silences the track's stock module beneath it |
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
@@ -536,14 +536,29 @@ compares it only with stock engines (MIDI 29, Drumline 4, the sample engines),
 so a module's ID, a free synth ID, reads as an ordinary synth there. A
 firmware without the module shows the stock module.
 
-**Choosing.** Shift and a track key reach the global controller (`8c091dd0`),
-which opens the preset browser for tracks 0..7 and otherwise calls the aux
-controller's `8c08f60c(controller, track)`. Stock opens the effect browser
-there only for tracks 14 and 15 and returns at once for the others. The hook
-replaces that return's `SP += 0x14; (R7:4) = [SP++]; UNLINK` at `8c08f624`:
-`sdk_aux_select(track)` opens the [stock browser adapter](#stock-browser),
-titled "aux" under the aux track's number, with the track's stock module and
-the selected machines' aux modules, and the stub completes the epilogue.
+**Choosing.** Aux tracks follow instrument tracks: Shift and M1 choose what
+runs on the track, and Shift and the track's key list its presets. The
+instrument controller's Shift-key method (`8c0b28a8`, method 4) opens the
+engine, filter and LFO browsers for Shift and M1, M3 and M4 (key codes 6, 8
+and 9, its jump table at `8400e324`). The aux controller's (`8c08f6b0`, its
+table at `8400b4e8`) returns 1 for key codes 6..9 and does nothing else. The
+hook replaces code 6's `UNLINK; R0 = 1; RTS` at `8c08f6ec`:
+`sdk_aux_engine_key` opens, on aux tracks 1..6, the
+[stock browser adapter](#stock-browser) titled "aux" under the aux track's
+number, with the track's stock module and the selected machines' aux modules;
+on the sends, stock's effect browser, through `8c08f60c` on the controller's
+static instance (`08014db4`, constructed on first use, its guard byte
+`08014dc8`). The stub then returns 1 as stock did.
+
+Shift and a track key reach the global controller (`8c091dd0`), which opens
+the preset browser for tracks 0..7 and otherwise calls the aux controller's
+`8c08f60c(controller, track)`. Stock opens the effect browser there only for
+tracks 14 and 15 and returns at once for the others. The hook replaces that
+return's `SP += 0x14; (R7:4) = [SP++]; UNLINK` at `8c08f624`:
+`sdk_aux_preset_key(track)` lists the presets of the module on aux track
+1..6, titled "preset" under the aux track's number, and the stub completes
+the epilogue. A preset passes the module's four controls to stock's set, as
+turning them would. The sends keep Shift and the track's key for effects.
 
 **The page.** Method 11 (`8c08f53c`) returns the screen for the selected aux
 track and page: brain 37, punch-in 61, MIDI 11 (M1..M3), CV 62, audio 63,

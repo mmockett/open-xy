@@ -10,7 +10,8 @@
 .align 2
 .extern sdk_aux_screen
 .extern sdk_aux_turn
-.extern sdk_aux_select
+.extern sdk_aux_preset_key
+.extern sdk_aux_engine_key
 
 /* 8c08f540: method 11, the page for the selected aux track, after its LINK
  * 0xc, in place of P1 = 0x840a0534 (the selected track). A nonzero page from
@@ -59,22 +60,37 @@ sdk_aux_turn_hook:
     RTS;
 .size sdk_aux_turn_hook, .-sdk_aux_turn_hook
 
-/* 8c08f624: the selector (8c08f60c(controller, track)) leaving for any track
- * but a send, in place of its epilogue SP += 0x14; (R7:4) = [SP++]; UNLINK.
- * R4 holds the track. The stub completes the epilogue and returns to the
- * selector's caller. */
-.global sdk_aux_select_hook
-.type sdk_aux_select_hook, STT_FUNC
-sdk_aux_select_hook:
+/* 8c08f624: stock's selector for Shift and an aux track's key
+ * (8c08f60c(controller, track)) leaving for any track but a send, in place of
+ * its epilogue SP += 0x14; (R7:4) = [SP++]; UNLINK. R4 holds the track. The
+ * stub completes the epilogue and returns to the selector's caller. */
+.global sdk_aux_preset_hook
+.type sdk_aux_preset_hook, STT_FUNC
+sdk_aux_preset_hook:
     HOOK_SAVE
     R0 = R4;
-    CALL sdk_aux_select;
+    CALL sdk_aux_preset_key;
     HOOK_RESTORE
     SP += 0x14;
     (R7:4) = [SP++];
     UNLINK;
     RTS;
-.size sdk_aux_select_hook, .-sdk_aux_select_hook
+.size sdk_aux_preset_hook, .-sdk_aux_preset_hook
+
+/* 8c08f6ec: the controller's Shift-key method (8c08f6b0, its method 4) for
+ * M1 (key code 6), in place of UNLINK; R0 = 1; RTS, which swallowed the key.
+ * The stub calls C++, then completes the method as stock did: it returns 1,
+ * the key handled. */
+.global sdk_aux_engine_hook
+.type sdk_aux_engine_hook, STT_FUNC
+sdk_aux_engine_hook:
+    HOOK_SAVE
+    CALL sdk_aux_engine_key;
+    HOOK_RESTORE
+    UNLINK;
+    R0 = 1;
+    RTS;
+.size sdk_aux_engine_hook, .-sdk_aux_engine_hook
 
 /* The stock module beneath a module, quietened. Both hooks replace a
  * function's first instruction with a jump here (call: false). When C++ says

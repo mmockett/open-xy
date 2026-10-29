@@ -381,16 +381,30 @@ def aux_targets(definition):
 def generate_aux_modules(directory, machines):
     """The collection's aux modules (definition "aux"): engine and page symbols, readiness,
     selector label and each control's macro target word."""
-    declarations, rows = [], []
+    declarations, rows, presets = [], [], []
     for m in machines:
         if not aux_module(m.definition):
             continue
+        # Its presets as Shift and the track's key list them: names, and each
+        # one's four control words in Q31, in definition order.
+        ids = [p['id'] for p in m.definition['parameters']]
+        named = list(m.definition['presets'].items())
+        if named:
+            names = ', '.join(json.dumps(name) for name, _values in named)
+            values = ', '.join('{' + ', '.join(str(round(values[i] * 0x7fffffff)) for i in ids) + '}'
+                               for _name, values in named)
+            presets += [f'static const char* const {m.prefix}_preset_names[] = {{{names}}};',
+                        f'static const opxy::i32 {m.prefix}_preset_values[][4] = {{{values}}};']
+            table = f'{len(named)}, {m.prefix}_preset_names, {m.prefix}_preset_values'
+        else:
+            table = '0, nullptr, nullptr'
         declarations += [f'int {m.prefix}_ready() __asm__("{m.prefix}_ready");',
                          f'extern const char {m.prefix}_engine_id[] __asm__("{m.prefix}_engine_id");',
                          f'extern const char {m.prefix}_page_id[] __asm__("{m.prefix}_page_id");']
         rows.append(f'    {{{m.prefix}_engine_id, {m.prefix}_page_id, {m.prefix}_ready, "{m.native_name}", '
-                    f'{{{aux_targets(m.definition)}}}}},')
-    return expand('aux_module_table.cpp.in', dict(DECLARATIONS='\n'.join(declarations), MODULES='\n'.join(rows)),
+                    f'{{{aux_targets(m.definition)}}}, {table}}},')
+    return expand('aux_module_table.cpp.in', dict(DECLARATIONS='\n'.join(declarations), MODULES='\n'.join(rows),
+                                                  PRESETS='\n'.join(presets)),
                   Path(directory) / 'aux_module_table.cpp')
 
 
