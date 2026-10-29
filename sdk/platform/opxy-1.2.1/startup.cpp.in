@@ -16,6 +16,7 @@ int kit_absent() __asm__("kit_absent");
 u32 stock_catalog_insert(void*, const void*, u32) __asm__("stock_catalog_insert");
 u32 stock_gui_role() __asm__("stock_gui_role");
 int sdk_screen_owned(u32) __asm__("sdk_screen_owned");
+void sdk_module_probe(u32 stage) __asm__("sdk_module_probe");
 u32 sdk_sample_screen(u32) __asm__("sdk_sample_screen");
 @DECLARATIONS@
 }
@@ -30,6 +31,7 @@ int kit_absent() { return 0; }
 // Effects register on both roles, like stock FX initialisation; engines
 // register here on the audio role only.
 void sdk_startup_synth() {
+    sdk_module_probe(stock_gui_role() ? 2 : 1);  // experiment: module_probe.cpp
 @EFFECTS@
     if (stock_gui_role()) return;
 @ENGINES@
@@ -38,6 +40,7 @@ void sdk_startup_synth() {
 // On the GUI role an engine with its own page registers only after its screen
 // is in place; a failed page skips only that engine.
 void sdk_startup_screen() {
+    sdk_module_probe(3);  // experiment: module_probe.cpp
 @SCREENS@
 }
 

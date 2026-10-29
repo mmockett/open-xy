@@ -182,7 +182,7 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser', 'sample_overview',
-             'aux_modules', 'aux_module_table', 'aux_hooks')
+             'aux_modules', 'aux_module_table', 'aux_hooks', 'module_probe', 'module_probe_cache')
 
 
 def machine_uses(machines):

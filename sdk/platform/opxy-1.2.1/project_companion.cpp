@@ -13,6 +13,7 @@ using opxy::platform::CompanionMachine;
 using opxy::platform::stock;
 
 extern "C" u32 sdk_project_save(void* project, const char* path) __asm__("sdk_project_save");
+extern "C" void sdk_module_probe(u32 stage) __asm__("sdk_module_probe");
 
 namespace {
 typedef void File;
@@ -133,5 +134,6 @@ u32 sdk_project_save(void* project, const char* path) {
     const u32 saved = save(project, path);
     u32 bytes, crc;
     if (saved && path && companion_path(path) && measure(path, bytes, crc)) write_companion(bytes, crc);
+    sdk_module_probe(4);  // experiment: module_probe.cpp
     return saved;
 }
