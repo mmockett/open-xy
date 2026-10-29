@@ -44,14 +44,15 @@ with the session that owns the combined firmware first.
 
 1. te-boot MTP; back up `/os.ldr` and `/layout.json` (docs/device.md in OP-XY-Dev).
 2. Copy the probe's `os.ldr` to `/os.ldr` and `probe-read.bin` to `/probe.bin`;
-   read `os.ldr` back and compare its hash. Write the OS (track 2, track 5),
-   power-cycle.
+   read `os.ldr` back and compare its hash. Write the OS: power off, hold
+   COM while switching on, track 3 (dev menu), track 5; power-cycle. (Track 3
+   then track 2 is MTP.)
 3. Boot normally, open a project, play a custom synth, save a project.
 4. te-boot MTP; `get /probe-log.txt`; also the newest `/logs/log_*.txt`.
 5. If the log shows reads at startup: replace `/probe.bin` with
    `probe-run.bin`, restart (no OS write), read the log again.
-6. Undo: put the backed-up `os.ldr` back, write the OS, remove `/probe.bin`
-   and `/probe-log.txt`.
+6. Undo: put the backed-up `os.ldr` back, write the OS as in step 2, remove
+   `/probe.bin` and `/probe-log.txt`.
 
 The log is also tried at `/fat32/projects/probe-log.oxy` (normal-mode MTP)
 when the probe was found as `/fat32/projects/probe.oxy`.
@@ -73,6 +74,50 @@ mask over `probe.bin`, `/yaffs2/probe.bin`, `/probe.bin`,
 | `run: state 1` and the device halted | Code written to module memory can't be fetched (CPLB or caches) |
 | `run: state 2 … (match)` | Code read from a file runs in the module |
 
-Not verified: whether `/yaffs2` and `/fat32` are the mount names (they come
-from strings in the stock OS), and whether `fopen` is safe on either role
-during startup.
+## Results: module-probe-004, 2026-10-29
+
+Run by the Nonagon session with the player's approval. Logs:
+`~/Library/Application Support/OPXY-SDK/private/device-backup-20261029-probe4/`
+(`probe-log-read.txt`, `probe-log-run.txt`, device logs `dev-2302.txt`,
+`dev-2307.txt`). The device booted normally both times and the custom synths
+played.
+
+| Test | Result |
+| --- | --- |
+| Read (`probe-read.bin`) | Found as `probe.bin` (relative; mask `1`), the root te-boot MTP shows. Read at stage 2, the synth initializer on the main board, then at the screen factory and on every save: 48 bytes, CRC `dd7f4962` |
+| Run (`probe-run.bin`, restart only) | `run: state 2, bytes 16, result 0325476c, expected 0325476c (match)`, CRC `58876bad` |
+
+**The OP-XY has two processors, each with its own copy of the module.** The
+device log interleaves two streams: `bfm`, the main board (screen, USB, yaffs
+and fat32, "dsp board revision is 5"), and `I`, the DSP board, which renders
+audio. The SDK's audio role is the DSP board, so `synth-audio 0` doesn't mean
+the audio role never ran. Its counters live in the DSP's memory, and the DSP
+never found the file itself, because the probe let it read only after a find
+in its own memory. Stage 1 is untested.
+
+What the boot order shows (`timing_log`): on the main board the filesystem
+starts at 2.6 s and engines at 7.6 s (stage 2), screens at 9.0 s (stage 3),
+then "synchronize cpus". The DSP board starts its filesystem at 1.6 s and
+engines at 8.0 s, and its own `filemanager` tries to open
+`user/tunings/user*.scl` (relative paths). So the DSP has some file access
+before its engines start, perhaps through the main board. Whether newlib
+`fopen` reaches it from the module is not tested.
+
+The `producer_factory: engine type <id> not registered` lines appear on both
+boards at every boot here, while the machines work. They aren't proof of a
+failed install on their own.
+
+What this settles for a loader:
+
+- Main board: proven. A file at the te-boot MTP root can be read before any
+  synth registers, and code copied from it into module memory runs after a
+  cache flush. Screens and GUI code could load from files today.
+- DSP board: open. Voices render there, so a loader has to work there too.
+  The next probe lets the DSP read on its own at stage 1 and report back. It
+  can't write the log through the main board's memory, so it needs its own
+  channel: its own `probe-log-dsp.txt` through newlib, or the stock logger
+  that writes the `I` lines (address not yet found).
+
+Not verified: whether `/yaffs2` and `/fat32` are mount names (they come from
+strings in the stock OS); the forms other than `probe.bin` were not reached
+because the first form opened.
