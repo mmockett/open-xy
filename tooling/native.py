@@ -199,7 +199,7 @@ def machine_uses(machines):
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
-                               'drum_controls_stock', 'drum_display_stock'), 'samples')
+                               'drum_controls_stock', 'drum_display_stock', 'sample_overview'), 'samples')
 # Aux modules run from the auxiliary controller's hooks (aux_hooks.s).
 UNIT_SERVICES.update(dict.fromkeys(('aux_modules', 'aux_module_table', 'aux_hooks'), 'aux'))
 
