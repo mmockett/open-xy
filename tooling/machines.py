@@ -21,7 +21,7 @@ from .pipeline import config
 
 KINDS = ('synth', 'sample', 'effect')
 FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'sources', 'includes', 'icon', 'presetDefaults',
-          'presets', 'dryParameter'}
+          'presets', 'dryParameter', 'dryLevel'}
 # The public machine contract: headers, definition schema, artwork rules and
 # callbacks. A machine names the version it was written for; the SDK builds a
 # machine of the same major version and an equal or older minor version.
@@ -68,6 +68,7 @@ class Machine:
     presets: dict = None  # name -> preset document, from machine.json `presets`
     icon: str = ''
     dry_parameter: int | None = None
+    dry_level: int | None = None  # a fixed source dry, Q31 (SDK 1.5)
     requested: dict = None  # the numbers machine.json asks for, when a layout gave others
 
     # The stock name and the symbol prefix are the machine's name.
@@ -243,6 +244,15 @@ def machine_at(root, identity=None):
         dry_parameter = matches[0]
         require(definition['parameters'][dry_parameter]['mapping'] ==
                 dict(kind='linear', minimum=0, maximum=1), 'dryParameter must map linearly from 0 to 1')
+    # A fixed source dry instead: 0 takes a sent track's dry wholly into the
+    # effect at full send, as an effect inline would.
+    dry_level = None
+    if 'dryLevel' in value:
+        require_sdk(version, (1, 5), 'A fixed source dry ("dryLevel")')
+        level = value['dryLevel']
+        require(kind == 'effect' and 'dryParameter' not in value and type(level) in (int, float) and 0 <= level <= 1,
+                'dryLevel is a number from 0 to 1 on an effect without dryParameter')
+        dry_level = round(level * 0x7fffffff)
     # A synth draws its own screen, and so may an effect (SDK 1.5); sample
     # engines and other effects use a stock page.
     display = 'drawing' if kind == 'synth' or 'display' in definition['resources'] else 'stock'
@@ -269,7 +279,7 @@ def machine_at(root, identity=None):
                    display=display, sources=sources, includes=includes,
                    definition=definition,
                    identity=check_identity(config()['identities'], kind, value['identity'], display), preset_defaults=defaults,
-                   root=root, icon=icon, dry_parameter=dry_parameter, presets=presets)
+                   root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets)
 
 
 # Machine numbers. Projects store a track's engine, effect and page numbers, so a
