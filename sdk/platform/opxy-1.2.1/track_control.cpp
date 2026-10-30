@@ -197,6 +197,78 @@ extern "C" i32 sdk_param_shown(u32 project, u32 track, u32 index, u32 playing) {
     return stock<i32(u32, u32, u32)>(0x8d5ac910)(project, track, index);
 }
 
+// Test for #238, never for release. Stock's LFO telemetry (ids 0x16/0x17) is one
+// pair, published only for the selected track, so a machine's own LFO stops when
+// another track is selected. Both boards keep a table of 31 telemetry words at
+// 080376e4; stock sends each changed word from the audio board to the GUI's
+// (8d4d666a, message 0xb4). Static reading finds no writer or reader of id 25.
+//
+// Audio: the aux evaluator's publish at 8d50f422 also puts the CV track's own
+// amount in id 25: tag, track, slot, then the amount's top 16 bits.
+// GUI: the displayed-value getter uses that amount for the CV track in place of
+// the shared pair, except while Shift is held, which gives stock's behaviour for
+// comparison. Logs (/logs/log_*.txt, "lfo238") show what happened.
+namespace {
+const u32 kTelemetry = 0x080376e4, kHeldId = 25, kHeldTrack = 11, kTag = 0xa0000000u;
+inline u32 telemetry(u32 id) { return word(kTelemetry + id * 4); }
+u32 held_word() {
+    const u32 w = telemetry(kHeldId);
+    return (w & 0xff000000u) == (kTag | kHeldTrack << 24) ? w : 0;
+}
+}
+
+extern "C" void sdk_lfo_aux_publish(u32 track, u32 slot, i32 wave, i32 depth) __asm__("sdk_lfo_aux_publish");
+extern "C" void sdk_lfo_aux_publish(u32 track, u32 slot, i32 wave, i32 depth) {
+    stock<void(u32, u32, i32, i32)>(0x8d4d68b8)(track, slot, wave, depth);
+    if (track != kHeldTrack) return;
+    const i32 amount = (depth >> 16) * (wave >> 16) * 2;
+    const u32 packed = kTag | track << 24 | (slot & 0xff) << 16 | (static_cast<u32>(amount) >> 16);
+    stock<u32(u32, u32)>(0x8d4d666a)(kHeldId, packed);
+}
+
+extern "C" i32 sdk_lfo_held_amount(u32 track, u32 index, i32 stock_amount) __asm__("sdk_lfo_held_amount");
+extern "C" i32 sdk_lfo_held_amount(u32 track, u32 index, i32 stock_amount) {
+    if (track != kHeldTrack || shift_held()) return stock_amount;
+    const u32 w = held_word();
+    if (!w) return stock_amount;
+    if (!*at<const opxy::u8>(stock<u32(u32)>(0x8d587708)(track) + 0x24)) return 0;
+    if (((w >> 16) & 0xff) != index) return 0;
+    return static_cast<i32>(w << 16);
+}
+
+// Once a tick on the GUI: a line when the selection or Shift changes, one every
+// few seconds, and one for any word in the ids this test takes to be free that
+// changes without this test's tag. At most kLfoLogLines lines a boot.
+namespace {
+const u32 kLfoLogLines = 300, kLfoWatched[9] = {12, 13, 14, 15, 16, 17, 18, 19, 24};
+u32 lfo_lines, lfo_selected = 99, lfo_shifted, lfo_seen[9], lfo_foreign_held;
+void lfo_log(const char* format, u32 a, u32 b, u32 c, u32 d) {
+    if (lfo_lines >= kLfoLogLines) return;
+    ++lfo_lines;
+    stock<void(u32, const char*, u32, const char*, ...)>(0x8c042efc)(3, "../src/sdk/lfo238.cpp", lfo_lines, format, a, b, c, d);
+}
+void lfo_watch() {
+    const u32 selected = stock<u32()>(0x8d4d6f14)(), shifted = shift_held();
+    const u32 raw = telemetry(kHeldId);
+    if (selected != lfo_selected || shifted != lfo_shifted || !(gui_ticks & 0xff)) {
+        lfo_selected = selected;
+        lfo_shifted = shifted;
+        lfo_log("lfo238 sel=%u shift=%u id25=%08x pair=%08x", selected, shifted, raw, telemetry(23));
+    }
+    for (u32 i = 0; i < 9; ++i) {
+        const u32 now = telemetry(kLfoWatched[i]);
+        if (now != lfo_seen[i]) {
+            lfo_seen[i] = now;
+            lfo_log("lfo238 foreign id=%u value=%08x tick=%u %u", kLfoWatched[i], now, gui_ticks, 0);
+        }
+    }
+    if (raw && !held_word() && raw != lfo_foreign_held) {
+        lfo_foreign_held = raw;
+        lfo_log("lfo238 foreign id=25 value=%08x tick=%u %u %u", raw, gui_ticks, 0, 0);
+    }
+}
+}
+
 extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value) {
     turned_track = track;
     turned_index = index;
@@ -226,6 +298,7 @@ extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value)
 }
 
 extern "C" void sdk_gui_tick() {
+    lfo_watch();
     stock<void()>(0x8d580074)();
     ++gui_ticks;
     sdk_synth_pages();

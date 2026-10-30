@@ -9,6 +9,7 @@
 .section .text
 .align 2
 .extern sdk_param_shown
+.extern sdk_lfo_held_amount
 .global sdk_param_shown_hook
 .type sdk_param_shown_hook, STT_FUNC
 sdk_param_shown_hook:
@@ -19,6 +20,13 @@ sdk_param_shown_hook:
     SP += -16;
     [SP + 12] = R3;
     CALL sdk_param_shown;
+    [SP + 12] = R0;
+    R0 = R4;
+    R1 = R7;
+    R2 = R6;
+    CALL sdk_lfo_held_amount;
+    R6 = R0;
+    R0 = [SP + 12];
     SP += 16;
     P0.L = 0xca8e;
     P0.H = 0x8d5a;

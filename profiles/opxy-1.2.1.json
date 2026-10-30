@@ -1255,6 +1255,17 @@
     },
     {
       "kind": "hook",
+      "name": "Test for #238: the aux LFO's telemetry also publishes the machine track's own amount",
+      "address": "0x8d50f422",
+      "file_offset": "0x14667e",
+      "length": 4,
+      "before": "fee34b3a",
+      "symbol": "sdk_lfo_aux_publish",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
       "name": "Displayed parameter values follow track control overlays",
       "address": "0x8d5aca48",
       "file_offset": "0x1e3ca0",
