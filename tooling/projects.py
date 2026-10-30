@@ -17,6 +17,7 @@ import zlib
 from .formats import require
 from .machines import check_layout_numbers, read_layout, reject_constant
 from .pipeline import config
+from .stock_tables import EFFECT_COUNT, ENGINE_COUNT
 
 FORMAT = 'open-xy-project'
 VERSION = 1
@@ -25,7 +26,8 @@ LIMIT = 64 * 1024
 MACHINES = 'open-xy.machines'
 MACHINES_VERSION = 1
 # What track control machines keep with a project, base64 by machine ID, and
-# which machine holds each aux track it took over, by track index.
+# the stock role's controls kept aside for each aux track pattern a machine took
+# over, by track and pattern index.
 CONTROL = 'open-xy.control'
 CONTROL_VERSION = 1
 # owner.name: the owner is a GitHub user or organisation, lowercased; `open-xy` is the SDK's.
@@ -33,10 +35,12 @@ SECTION_NAME = re.compile(r'[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+')
 # The machine IDs a companion may list, the firmware reader's rule (project_companion.cpp
 # machine_name): a lowercase letter, then lowercase letters, digits or _, at most 15.
 MACHINE_ID = re.compile(r'[a-z][a-z0-9_]{0,14}')
-# Distinct machines one section may list, as many as the firmware reader holds.
-MACHINE_LIMIT = 128
-# Engine and effect numbers a pattern can hold registered; others are never mapped.
-NUMBERS = 63
+# Distinct machines one section may list, as many as the firmware reader holds: more
+# than one firmware numbers (test_stock_tables), so it reads every companion it writes.
+MACHINE_LIMIT = 256
+# Engine and effect numbers a pattern can hold registered, the relocated tables' counts
+# (project_companion.cpp kNumbers and kEffectNumbers); others are never mapped.
+NUMBERS, EFFECT_NUMBERS = ENGINE_COUNT, EFFECT_COUNT
 # What a listed machine missing here, or a number two listed machines claim, becomes:
 # Prism on an instrument track, no effect on a send.
 FALLBACK = {'engine': 18, 'effect': 0}
@@ -123,21 +127,23 @@ def kept_data(document, data):
     return {name: base64.b64decode(kept) for name, kept in section.get('machines', {}).items()}
 
 
-def aux_holders(document, data):
-    """Each aux track a machine held in these project bytes, by track index: the machine
-    ID and the stock role's eight controls, which the firmware gives back on release."""
+def aux_kept(document, data):
+    """The stock role's eight controls kept aside for each aux track pattern a machine
+    held in these project bytes, by track and pattern index; the firmware gives them
+    back on release, or after a load when it lacks the machine."""
     section = document['sections'].get(CONTROL)
     if not describes(document, data) or not section or section['version'] > CONTROL_VERSION:
         return {}
-    return {int(track): (held['machine'], list(struct.unpack('<8i', base64.b64decode(held['controls']))))
-            for track, held in section.get('aux', {}).items()}
+    return {int(track): {int(pattern): list(struct.unpack('<8i', base64.b64decode(controls)))
+                         for pattern, controls in patterns.items()}
+            for track, patterns in section.get('aux', {}).items()}
 
 
 def translation(saved, layout):
     """Each saved (slot, number) and what it is in `layout`: the machine's own number
     there, or None when the machine is not in it, which a reader opens as FALLBACK.
     An engine or effect number two listed machines claim is None too: neither can be
-    trusted. Numbers not listed, or outside the records (NUMBERS), stay as they are.
+    trusted. Numbers not listed, or outside the records (NUMBERS, EFFECT_NUMBERS), stay as they are.
     Pages, which projects do not save and sample engines share, map without that rule."""
     result, claims = {}, {}
     for name, identity in saved.items():
@@ -146,7 +152,7 @@ def translation(saved, layout):
             # Effects share stock's FX page; a page means nothing without its engine.
             if slot == 'page' and 'effect' in identity:
                 continue
-            if slot != 'page' and not 0 <= number < NUMBERS:
+            if slot != 'page' and not 0 <= number < (EFFECT_NUMBERS if slot == 'effect' else NUMBERS):
                 continue
             claims[(slot, number)] = claims.get((slot, number), 0) + 1
             result[(slot, number)] = here.get(slot) if here and set(here) == set(identity) else None
@@ -155,8 +161,8 @@ def translation(saved, layout):
 
 def companion(data, layout, previous=None, profile=None, kept=None, aux=None):
     """The companion for project bytes `data` saved with `layout`, what track control
-    machines `kept` (bytes by machine ID) and the `aux` tracks machines held (machine ID
-    and the role's eight controls, by track index), as the firmware writes it. Other
+    machines `kept` (bytes by machine ID) and the role's eight controls kept for `aux`
+    track patterns machines held (by track and pattern index), as the firmware writes it. Other
     sections are kept from `previous` only while it still describes the same bytes."""
     sections = {}
     if previous and describes(previous, data):
@@ -168,9 +174,9 @@ def companion(data, layout, previous=None, profile=None, kept=None, aux=None):
     if kept:
         sections[CONTROL]['machines'] = {name: base64.b64encode(value).decode() for name, value in kept.items()}
     if aux:
-        sections[CONTROL]['aux'] = {str(track): {'machine': machine,
-                                                 'controls': base64.b64encode(struct.pack('<8i', *controls)).decode()}
-                                    for track, (machine, controls) in aux.items()}
+        sections[CONTROL]['aux'] = {str(track): {str(pattern): base64.b64encode(struct.pack('<8i', *controls)).decode()
+                                                 for pattern, controls in patterns.items()}
+                                    for track, patterns in aux.items()}
     return canonical({'format': FORMAT, 'version': VERSION, 'project': binding(data), 'sections': sections})
 
 

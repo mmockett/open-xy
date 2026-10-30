@@ -32,10 +32,10 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.5 drops identity numbers: the layout gives every number, and a sample engine
 # names its base instead of a stock page.
 # 1.6 extends PadSettings to 18 bits and supplies held-pad and multi-edit services.
-# 1.7 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages),
-# lets an effect page its controls, have a shift row, draw its own page and fix
+# 1.7 lets an effect page its controls, have a shift row, draw its own page and fix
 # its source dry (dryLevel), and adds a saturating Q31 add.
-SDK_VERSION = (1, 7)
+# 1.8 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages).
+SDK_VERSION = (1, 8)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -285,7 +285,7 @@ def machine_at(root, identity=None):
         if len(definition['parameters']) < 8:
             require_sdk(version, (1, 4), 'A partially filled second page')
     if 'hidePages' in definition:
-        require_sdk(version, (1, 7), 'Hidden stock pages ("hidePages")')
+        require_sdk(version, (1, 8), 'Hidden stock pages ("hidePages")')
     if kind == 'effect' and paged(definition):
         require_sdk(version, (1, 7), 'An effect whose press switches the page ("press": "page")')
     if shift_parameters(definition):
@@ -336,7 +336,7 @@ def machine_at(root, identity=None):
         require(requested['page'] == SAMPLE_BASES['drumSampler'],
                 'Pad settings and drum controls need the drum sampler base ("base": "drumSampler")')
     if 'trackControl' in definition['resources']:
-        require_sdk(version, (1, 7), 'Track control (trackControl)')
+        require_sdk(version, (1, 8), 'Track control (trackControl)')
         require((root / 'control.cpp').is_file(), 'A synth with track control supplies control.cpp')
     defaults = value.get('presetDefaults', {})
     require(isinstance(defaults, dict) and set(defaults) <= {'amp'}, 'Invalid preset defaults')

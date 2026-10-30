@@ -52,6 +52,8 @@ class PackageVerification(unittest.TestCase):
         cls.report = document(cls.package / 'analysis/compile-report.json')
         cls.elf = read(cls.package / 'analysis/module.elf')
         cls.patch_profile, cls.machines, _definitions = native.configuration(native.package_collection(cls.package))
+        # A collection larger than the module links only what fits (native.linked_machines).
+        cls.linked = native.linked_in(cls.machines, cls.report)
         cls.patch_profile['patches'] = cls.report['patches']
 
     def setUp(self):
@@ -121,29 +123,29 @@ class PackageVerification(unittest.TestCase):
 
     def test_only_curated_engines_are_linked_and_added_to_stock_content(self):
         _, symbols = elf32(self.elf)
-        for m in self.machines:
+        for m in self.linked:
             self.assertIn(m.prefix + ('_fx_factory' if m.kind == 'effect' else '_factory'), symbols)
         factories = {name for name in symbols if name.endswith('_factory')}
         self.assertEqual(factories, {m.prefix + ('_fx_factory' if m.kind == 'effect' else '_factory')
-                                     for m in self.machines})
+                                     for m in self.linked})
         original = json.loads(self.catalog)
         current = json.loads((self.package / 'candidate/content/op1_factory.json').read_bytes())
         # Machines that take over aux tracks are chosen there, not in this list.
-        names = [m.native_name for m in self.machines if m.kind != 'effect' and catalog_entry(m)]
+        names = [m.native_name for m in self.linked if m.kind != 'effect' and catalog_entry(m)]
         self.assertEqual(current['engine_types'][:-len(names)], original['engine_types'])
         self.assertEqual([e['type'] for e in current['engine_types'][-len(names):]], names)
-        displays = [m.native_name for m in self.machines if m.display != 'stock']
+        displays = [m.native_name for m in self.linked if m.display != 'stock']
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}
-        marks = {'content/display/openxy_overlay.svg'} if any(map(native.track_control, self.machines)) else set()
-        presets = {path for m in self.machines for path in aux_preset_files(m)}
+        marks = {'content/display/openxy_overlay.svg'} if any(map(native.track_control, self.linked)) else set()
+        presets = {path for m in self.linked for path in aux_preset_files(m)}
         self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays} |
                          marks | presets)
 
     def test_changed_os_elf_module_and_asset_fail_even_with_new_hash(self):
         names = ['candidate/os.ldr', 'analysis/module.elf', 'analysis/module.bin', 'candidate/content/op1_factory.json',
-                 *(f'candidate/content/display/{m.native_name}.svg' for m in self.machines if m.display != 'stock'),
-                 *(['candidate/content/display/openxy_overlay.svg'] if any(map(native.track_control, self.machines)) else [])]
+                 *(f'candidate/content/display/{m.native_name}.svg' for m in self.linked if m.display != 'stock'),
+                 *(['candidate/content/display/openxy_overlay.svg'] if any(map(native.track_control, self.linked)) else [])]
         for name in names:
             with self.subTest(name=name):
                 path = self.copy / name

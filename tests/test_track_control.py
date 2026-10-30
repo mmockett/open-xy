@@ -83,8 +83,12 @@ class TrackControl(unittest.TestCase):
         names = [p['id'] for p in synth.definition['parameters']]
         synth.definition['presets'] = {'Soft': {names[0]: 0.5}, 'Full': {n: 1 for n in names}}
         files = aux_preset_files(synth)
-        self.assertEqual(sorted(files), [f'content/aux_presets/{synth.id}/full.json',
+        self.assertEqual(sorted(files), ['content/aux_presets/cv/init.json',
+                                         f'content/aux_presets/{synth.id}/full.json',
                                          f'content/aux_presets/{synth.id}/soft.json'])
+        # CV is listed for those who only choose presets: its init gives the track back, controls as they were.
+        self.assertEqual(json.loads(files['content/aux_presets/cv/init.json']),
+                         {'platform': 'OP-XY', 'type': 'cv', 'version': 1})
         soft = json.loads(files[f'content/aux_presets/{synth.id}/soft.json'])
         self.assertEqual((soft['type'], soft['params'][0], len(soft['params'])), (synth.id, 16384, 8))
         self.assertEqual(json.loads(files[f'content/aux_presets/{synth.id}/full.json'])['params'][:len(names)],

@@ -31,15 +31,19 @@ struct ControlMachine {
 // The engine whose machine runs on a track: stock's engine on an instrument
 // track, the machine holding an aux track, else 0. GUI only (track_control.cpp).
 u32 control_engine(u32 track);
+// What the aux service publishes in a held aux track's last live word (aux_tracks.cpp):
+// the mark while a machine holds it, then for a few ticks the release. Never
+// stored; machines see the stored value instead.
+const i32 kAuxMark = 0x4f584155, kAuxRelease = 0x4f58524c;  // "OXAU", "OXRL"
 // The aux service (aux_tracks.cpp), linked only for a machine that takes over aux
 // tracks: its entry points, which its startup fills in; null without it.
 struct AuxService {
     u32 (*engine)(u32 track);           // the engine of the machine holding an aux track, or 0
     void (*tick)();                     // once per GUI tick, before the machines run
-    const char* (*holder)(u32 track);   // what to save: the holder's machine ID, or null
-    const i32* (*kept)(u32 track);      // and the stock role's controls kept aside
-    void (*restore)(u32 track, const char* id, u32 id_length, const i32* controls);  // after a load
-    void (*forget)();                   // before a load and for a new project: every role stock
+    // What to save: the stock role's controls kept aside for a pattern a machine holds, or null.
+    const i32* (*kept)(u32 track, u32 pattern);
+    void (*restore)(u32 track, u32 pattern, const i32* controls);  // after a load
+    void (*forget)();                   // before a load and for a new project: nothing kept
 };
 // The marks track control shows over every page (track_control_overlay.cpp.in):
 // a machine captures edits, or the selected track holds an overlay from one that

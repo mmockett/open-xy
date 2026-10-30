@@ -589,14 +589,25 @@ def stock_labels(m):
     return ', '.join(json.dumps(p['label'].lower()) for p in m.definition['parameters'])
 
 
+# The stock role of each aux track a machine can take over (1-based), as presets name it.
+AUX_ROLES = {12: 'cv'}
+
+
 def aux_preset_files(m):
     """A machine that takes over aux tracks: its definition's presets as the files the
     aux preset list reads (aux_tracks.cpp), by path. Each names the machine in "type"
-    and holds its eight controls as instrument presets store them (0..32767)."""
+    and holds its eight controls as instrument presets store them (0..32767). With
+    them, an `init` for the stock role of each of its tracks, without controls: it
+    gives the track back to that role, so the role is listed for those who only
+    choose presets."""
     if not (track_control(m) and track_control(m).get('aux')):
         return {}
     parameters = m.definition['parameters']
     files = {}
+    for track in track_control(m)['aux']:
+        role = AUX_ROLES[track]
+        document = {'platform': 'OP-XY', 'type': role, 'version': 1}
+        files[f'content/aux_presets/{role}/init.json'] = (json.dumps(document, indent=2) + '\n').encode()
     for name, preset in m.definition['presets'].items():
         params = [math.floor(preset.get(p['id'], p['default']) * 32767 + 0.5) for p in parameters]
         params += [0] * (8 - len(params))

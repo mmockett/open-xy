@@ -188,11 +188,13 @@ bool kept_section(const Reader& r, u32 bytes, u32 crc, u32& at, u32& to) {
     return true;
 }
 
-// The aux tracks the machines may take over, as track indices; their keys in
-// the "aux" object are the indices in decimal.
+// Track and pattern indices in decimal: the keys of the "aux" object and of
+// each track's object in it.
 const char* const kAuxKeys[opxy::control::all_tracks] = {
     "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"};
-const u32 kAuxControls = 8;
+const u32 kAuxControls = 8, kAuxPatterns = 16;
+// Indices 0..15 as their keys sort, as strings.
+const u32 kKeyOrder[] = {0, 1, 10, 11, 12, 13, 14, 15, 2, 3, 4, 5, 6, 7, 8, 9};
 
 void load_kept(const char* path) {
     bool keeping = false;
@@ -219,21 +221,22 @@ void load_kept(const char* path) {
         if (machines && r.member(machines_at, machines_to, m.name, a, b)) count = r.base64(a, b, m.saved_bytes);
         m.load(kept, count);
     }
-    // Each aux track a machine held: {"machine": id, "controls": base64 of the
-    // role's eight controls}. Tracks without one keep their stock role.
+    // By aux track, each pattern a machine held: base64 of the role's eight
+    // controls. Which machine holds a pattern is in the project itself.
     if (sdk_aux.forget) sdk_aux.forget();
     if (!found || !sdk_aux.restore || !r.member(at, to, "aux", aux_at, aux_to)) return;
     for (u32 t = 0; t < opxy::control::all_tracks; ++t) {
-        u32 a, b, c, d, e, f;
-        if (!r.member(aux_at, aux_to, kAuxKeys[t], a, b) || !r.member(a, b, "machine", c, d) ||
-            !r.member(a, b, "controls", e, f) || d - c < 3 || project_text[c] != '"' ||
-            r.base64(e, f, kAuxControls * 4) != kAuxControls * 4)
-            continue;
-        opxy::i32 controls[kAuxControls];
-        for (u32 i = 0; i < kAuxControls; ++i)
-            controls[i] = static_cast<opxy::i32>(kept[4 * i] | kept[4 * i + 1] << 8 | kept[4 * i + 2] << 16 |
-                                                 static_cast<u32>(kept[4 * i + 3]) << 24);
-        sdk_aux.restore(t, project_text + c + 1, d - c - 2, controls);
+        u32 a, b;
+        if (!r.member(aux_at, aux_to, kAuxKeys[t], a, b)) continue;
+        for (u32 p = 0; p < kAuxPatterns; ++p) {
+            u32 e, f;
+            if (!r.member(a, b, kAuxKeys[p], e, f) || r.base64(e, f, kAuxControls * 4) != kAuxControls * 4) continue;
+            opxy::i32 controls[kAuxControls];
+            for (u32 i = 0; i < kAuxControls; ++i)
+                controls[i] = static_cast<opxy::i32>(kept[4 * i] | kept[4 * i + 1] << 8 | kept[4 * i + 2] << 16 |
+                                                     static_cast<u32>(kept[4 * i + 3]) << 24);
+            sdk_aux.restore(t, p, controls);
+        }
     }
 }
 
@@ -248,27 +251,33 @@ void forget_kept() {
 }
 }
 
-// "open-xy.control": the machine holding each aux track it took over, by track
-// index, and what each track control machine keeps, by machine ID, in the
-// canonical form (docs/projects.md): keys sorted, two-space indentation.
+// "open-xy.control": by aux track index, the stock role's controls kept aside
+// for each pattern a machine holds, by pattern index, and what each track
+// control machine keeps, by machine ID, in the canonical form
+// (docs/projects.md): keys sorted, two-space indentation.
 extern "C" u32 sdk_control_kept_write(void* file) {
     Stream out(static_cast<kept_files::File*>(file));
-    // Aux track keys sort as strings: 10..15, then 8 and 9.
-    static const u32 kAuxOrder[] = {10, 11, 12, 13, 14, 15, 8, 9};
     u32 held = 0, listed = 0;
-    for (u32 t : kAuxOrder) {
-        const char* id = sdk_aux.holder ? sdk_aux.holder(t) : nullptr;
-        if (!id) continue;
-        out.put(held++ ? "\n        },\n        \"" : "    \"open-xy.control\": {\n      \"aux\": {\n        \"");
-        out.put(kAuxKeys[t]);
-        out.put("\": {\n          \"controls\": \"");
-        const opxy::i32* controls = sdk_aux.kept(t);
-        for (u32 i = 0; i < kAuxControls; ++i)
-            for (u32 b = 0; b < 4; ++b) kept[4 * i + b] = static_cast<unsigned char>(static_cast<u32>(controls[i]) >> (8 * b));
-        out.base64(kept, kAuxControls * 4);
-        out.put("\",\n          \"machine\": \"");
-        out.put(id);
-        out.byte('"');
+    for (u32 t : kKeyOrder) {
+        u32 patterns = 0;
+        for (u32 p : kKeyOrder) {
+            const opxy::i32* controls = sdk_aux.kept ? sdk_aux.kept(t, p) : nullptr;
+            if (!controls) continue;
+            if (!patterns++) {
+                out.put(held++ ? "\n        },\n        \"" : "    \"open-xy.control\": {\n      \"aux\": {\n        \"");
+                out.put(kAuxKeys[t]);
+                out.put("\": {\n          \"");
+            } else {
+                out.put(",\n          \"");
+            }
+            out.put(kAuxKeys[p]);
+            out.put("\": \"");
+            for (u32 i = 0; i < kAuxControls; ++i)
+                for (u32 b = 0; b < 4; ++b)
+                    kept[4 * i + b] = static_cast<unsigned char>(static_cast<u32>(controls[i]) >> (8 * b));
+            out.base64(kept, kAuxControls * 4);
+            out.byte('"');
+        }
     }
     if (held) out.put("\n        }\n      },\n");
     for (u32 i = 0; i < sdk_control_machine_count; ++i) {

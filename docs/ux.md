@@ -71,7 +71,7 @@ things everywhere.
   tracks 1-8; on the send tracks it opens their effect list.
 - **Shift + track key opens presets**, in two columns as on tracks 1-8:
   folders, then presets. Ship a preset named `init` with the machine's
-  defaults.
+  defaults; the builders add one for the stock role, so it stays listed.
 - **Hide the pages it has no use for.** M2 and M4 on an aux track are its other
   page and its LFO; a machine with its own LFO, or no use for them, hides them
   with `hidePages` and may take the key itself.

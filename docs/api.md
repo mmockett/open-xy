@@ -34,9 +34,9 @@ The [firmware contract](abi-1.2.1.md) explains where each rule comes from.
 
 ## Memory and limits
 
-Every selected machine and the SDK share **one 2040 KiB module region**: code,
+Every selected machine and the SDK share **one 2032 KiB module region**: code,
 constant data and zero-initialized state together. It is the 2 MiB the
-firmware reserves from its heap, minus 8 KiB of relocated stock tables. There
+firmware reserves from its heap, minus 16 KiB of relocated stock tables. There
 is no per-machine allowance: a build that does not fit names each machine's
 share, and `sdk.py compile` and the builder's memory meter report the same
 figures. State usually dominates, since a synth's voice pool is
@@ -50,7 +50,7 @@ and requires each other machine to fit beside them, as the builder offers it.
 
 | Limit | Value | Why |
 | --- | --- | --- |
-| Module memory | 2040 KiB for the selected machines | Firmware heap reservation minus the relocated tables |
+| Module memory | 2032 KiB for the selected machines | Firmware heap reservation minus the relocated tables |
 | Voices | 1..256 per machine | Stock voice indices |
 | Effect state | 476 bytes | The 480-byte stock FX slot minus its object header |
 | Synth controls | 4 positions, at most 8 parameters | The stock four-knob page and eight-word parameter vector |
@@ -288,11 +288,11 @@ serialized access.
 
 ## Track control
 
-A synth can steer other tracks (SDK 1.7). A build without such a machine (or
+A synth can steer other tracks (SDK 1.8). A build without such a machine (or
 one with [hidden pages](#alternate-controls)) applies none of track control's
 firmware edits and links none of its code. It declares
 `"trackControl": {"stateBytes": n, "stateAlignment": a}` in `resources`, with
-`"sdk": "1.7"` in `machine.json`, and supplies `control.cpp` with:
+`"sdk": "1.8"` in `machine.json`, and supplies `control.cpp` with:
 
 ```cpp
 struct ControlState { ... };  // trivial, standard-layout; starts zeroed
@@ -392,25 +392,31 @@ on its aux track only.
 
 - **Choosing:** Shift + M1 on track 12 opens a list, "engine", with the
   track's stock role (`cv`) first, then each machine that may take it over.
-  While a machine holds the track, CV and gate stay silent. The choice is kept
-  with the project; a new project starts with `cv`.
+  As tracks 1-8 hold an engine, each pattern holds its own choice: it applies
+  to the current pattern, is copied with it and saved with the project, and
+  chained patterns switch between CV and the machine. While a machine holds the
+  playing pattern, CV and gate stay silent. A new project starts with `cv`.
 - **Its page:** M1 shows the machine's display, and its encoders, presses and
   alternates work as on tracks 1-8. Its `hidePages` and `page_key` work there
   too: on an aux track M2..M4 are the track's other pages and its LFO. The
   LFO's four engine destinations, the track's words 0..3, are named after the
   machine's first four parameters, and move them as on tracks 1-8.
 - **Its controls:** words 0..7 of track 12, so they are sequenced, locked and
-  saved like any track parameter, and `values[11]` holds them. Taking the
-  track over sets the machine's defaults; giving it back restores the role's
-  values.
+  saved like any track parameter, and `values[11]` holds them. Taking a
+  pattern over sets the machine's defaults; giving it back restores the role's
+  values (a pattern copied from one the machine held takes another pattern's). A project opened with a build that lacks the machine gets the role's
+  values back too. Opened on stock firmware, CV plays the machine's values.
 - **Presets:** Shift + track key on track 12 lists presets in two columns, as
   stock's preset browser does: folders, then the presets in them that can run
   on the track. Choosing one gives the track to its machine (or role) and sets
   its controls. The builders install a machine's definition presets as
   `content/aux_presets/<id>/<name>.json` (names lowercased, at most 15
-  characters); users add their own as `aux_presets/<folder>/<name>.json` over
-  MTP. Each is `{"params": [eight values 0..32767], "platform": "OP-XY",
-  "type": "<machine id or cv>", "version": 1}`.
+  characters), and `content/aux_presets/cv/init.json` so CV is listed too;
+  users add their own as `aux_presets/<folder>/<name>.json` over MTP. Each is
+  `{"params": [eight values 0..32767], "platform": "OP-XY", "type": "<machine
+  id or cv>", "version": 1}`. Without `params`, a preset only gives the track
+  to its machine or role, leaving the controls as they were, as CV's `init`
+  does.
 
 It runs on the GUI side like any track control machine; nothing changes on the
 audio side but the silenced CV output.
@@ -701,7 +707,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.7 and builds 1.0 to 1.7 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.8 and builds 1.0 to 1.8 machines |
 | `kind` | `synth`, `sample` or `effect` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -741,9 +747,9 @@ build gives every machine the stock numbers projects save, an engine number
 
 | Kind | Engine or effect number | Screen |
 | --- | --- | --- |
-| `synth` | Engine 34..62 | Its own, 82..127 |
-| `sample` | Engine 34..62 | Its base's: the stock sampler's or drum sampler's. An [own screen](#own-screen): its own, 82..127 |
-| `effect` | Effect 1, 8, 11, 21, 23..28 or 34..62 | The stock FX screen, or its own, 82..127 (SDK 1.7) |
+| `synth` | Engine 34..255 | Its own, 82..255 |
+| `sample` | Engine 34..255 | Its base's: the stock sampler's or drum sampler's. An [own screen](#own-screen): its own, 82..255 |
+| `effect` | Effect 1, 8, 11, 21, 23..28 or 34..62 | The stock FX screen, or its own, 82..255 (SDK 1.7) |
 
 These numbers exist only in the relocated stock tables, so no machine shares
 one with stock. Four core machines, which the first Open-XY firmware shipped,

@@ -57,26 +57,30 @@ const opxy::platform::ControlMachine sdk_control_machines[] = {
 const opxy::u32 sdk_control_machine_count = 2;
 }
 
-// Aux tracks (aux_tracks.cpp): "morph" may hold track 11, with the stock role's
-// eight controls kept aside; the fixture holds it when HOLD is set.
+// Aux tracks (aux_tracks.cpp): a machine may hold patterns of track 11, with
+// the stock role's eight controls kept aside for each; when HOLD is set, the
+// fixture holds patterns 0 and 10, whose keys sort apart ("0", "10").
 namespace {
-const char* held_id;
-opxy::i32 held_controls[8] = {1, 2, 3, -4, 0x7fffffff, 6, 7, 8};
-opxy::u32 restored_track = 99, restored_length;
-char restored_id[16];
-opxy::i32 restored_controls[8];
+bool holding;
+opxy::i32 held_controls[2][8] = {{1, 2, 3, -4, 0x7fffffff, 6, 7, 8}, {9, 0, 0, 0, 0, 0, 0, -1}};
+opxy::u32 restored_count;
+opxy::u32 restored[4][2];
+opxy::i32 restored_controls[4][8];
 }
 opxy::platform::AuxService sdk_aux;
 namespace {
-const char* aux_holder(opxy::u32 track) { return track == 11 ? held_id : nullptr; }
-const opxy::i32* aux_kept(opxy::u32) { return held_controls; }
-void aux_restore(opxy::u32 track, const char* id, opxy::u32 length, const opxy::i32* controls) {
-    restored_track = track;
-    restored_length = length;
-    for (opxy::u32 i = 0; i < length && i < 15; ++i) restored_id[i] = id[i];
-    for (opxy::u32 i = 0; i < 8; ++i) restored_controls[i] = controls[i];
+const opxy::i32* aux_kept(opxy::u32 track, opxy::u32 pattern) {
+    if (!holding || track != 11) return nullptr;
+    return pattern == 0 ? held_controls[0] : pattern == 10 ? held_controls[1] : nullptr;
 }
-void aux_forget() { restored_track = 99; }
+void aux_restore(opxy::u32 track, opxy::u32 pattern, const opxy::i32* controls) {
+    if (restored_count == 4) return;
+    restored[restored_count][0] = track;
+    restored[restored_count][1] = pattern;
+    for (opxy::u32 i = 0; i < 8; ++i) restored_controls[restored_count][i] = controls[i];
+    ++restored_count;
+}
+void aux_forget() { restored_count = 0; }
 }
 
 namespace {
@@ -116,9 +120,9 @@ int main(int argc, char** argv) {
     if (argc != 3 && argc != 4) return 2;
     saving = argv[1];
     save_result = static_cast<unsigned>(std::atoi(argv[2]));
-    if (std::getenv("HOLD")) held_id = "morph";
+    holding = std::getenv("HOLD") != nullptr;
     // The aux service, as its startup fills it in (unless NOAUX: a build without it).
-    if (!std::getenv("NOAUX")) sdk_aux = opxy::platform::AuxService{nullptr, nullptr, aux_holder, aux_kept, aux_restore, aux_forget};
+    if (!std::getenv("NOAUX")) sdk_aux = opxy::platform::AuxService{nullptr, nullptr, aux_kept, aux_restore, aux_forget};
     if (argc == 3) return sdk_project_save(nullptr, saving) == save_result ? 0 : 1;
     const std::string mode = argv[3];
     loading = mode == "busy";
@@ -135,9 +139,9 @@ int main(int argc, char** argv) {
     } else {
         return 2;
     }
-    if (restored_track != 99) {
-        std::printf("aux %u %.*s", restored_track, static_cast<int>(restored_length), restored_id);
-        for (opxy::u32 i = 0; i < 8; ++i) std::printf(" %d", restored_controls[i]);
+    for (opxy::u32 r = 0; r < restored_count; ++r) {
+        std::printf("aux %u %u", restored[r][0], restored[r][1]);
+        for (opxy::u32 i = 0; i < 8; ++i) std::printf(" %d", restored_controls[r][i]);
         std::printf("\n");
     }
     if (loaded == 99) std::printf("none\n");

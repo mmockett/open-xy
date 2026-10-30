@@ -263,6 +263,10 @@ extern "C" void sdk_gui_tick() {
         if (!loaded) {
             for (u32 u = 0; u < control::all_tracks; ++u)
                 for (u32 p = 0; p < control::track_parameters; ++p) input.values[u][p] = live(u, p);
+            for (u32 u = 0; u < control::all_tracks; ++u) {
+                i32& last = input.values[u][control::track_parameters - 1];
+                if (last == kAuxMark || last == kAuxRelease) last = base(u, control::track_parameters - 1);
+            }
             for (u32 i = 0; i < applied_count; ++i)
                 input.values[applied[i].track][applied[i].index] = applied[i].underlying;
             input.transport = opxy::Transport{project_bpm_x10(), word(kTicks96), byte(kPlaying) || byte(kPlaying + 1)};

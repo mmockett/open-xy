@@ -30,7 +30,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 20 | Routes controls, octave publication, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
-| Relocated tables | 22 | Moves the effect records (63), engine records (63) and screen slots (128) into the last 8 KiB of the reservation |
+| Relocated tables | 21 + 1 hook | Moves the effect records (63), engine records (256) and screen slots (256) into the last 16 KiB of the reservation; the engine validity check's 7-bit bound is a call (`sdk_engine_bound`) that compares against 256 |
 | Screen order | 2 | Paints a selected owned synth page before stock overlays, and a page-2 sample engine's own screen right after the sampler's page it covers |
 | Sample screen controls | 2 | Routes the sampler page's encoder turns to a page-2 sample engine's own controls through stock's parameter editor, and saves those edits as a synth's |
 | Synth and effect controls | 7 | Lets an encoder press on an owned synth's or send effect's page select an alternate parameter, which its turns, titles and values then follow; scales fine turns on owned synth and send-effect pages; steps owned enums one choice per detent; names owned enums' choices, and an owned effect's division values on the send page |
@@ -224,8 +224,8 @@ and then completes the stock epilogue it replaced.
 
 | Table | Size | Never use | Notes |
 | --- | --- | --- | --- |
-| Engines | 63 (relocated) | 33 (stock "none"), IDs stock registers | IDs above 32 exist only with the relocated tables |
-| Screen pages | 128 (relocated) | 81 (stock "none") | Sample engines show stock page 2 or 7 instead |
+| Engines | 256 (relocated) | 33 (stock "none"), IDs stock registers | IDs above 32 exist only with the relocated tables |
+| Screen pages | 256 (relocated) | 81 (stock "none") | Sample engines show stock page 2 or 7 instead |
 | Effects | 63 (relocated) | 19 (stock "none"), IDs stock registers, stock engine IDs (2–4, 6, 7, 20, 22, 29–33) | Free IDs: 1, 8, 11, 21, 23–28, 34–62; all effects use page 21 |
 
 Presets store the engine **name**. Projects store the engine **number**.
@@ -500,8 +500,14 @@ usable for that reason (its branches share `8c08fd60`).
 | `8d50e95c` | Note on's call of the CV gate `8d5b5fe0` | Skipped while a machine holds track 12 |
 | `8d53d2a0` | `P2 = 84056d50` in the aux LFO's destination label `8d53d160(track, group, slot)`, for group 0: stock's fixed `param1`..`param4` | While a machine holds the track, returns its parameter's name from the engine record (`8d506c4c`), as tracks 1-8 show theirs; otherwise replays the load |
 
-Which machine holds a track is GUI state ([`aux_tracks.cpp`](../sdk/platform/opxy-1.2.1/aux_tracks.cpp)),
-kept with the project in its [companion](projects.md#open-xycontrol). GUI and
+A track holds a machine per pattern, as tracks 0–7 hold an engine: by its
+engine number in the pattern's engine word (`+0x18`), which `8d58781c` reads
+and `8d5877e4` sets, marking the project changed. Stock keeps 18 there on aux
+tracks, copies the word with a pattern and saves it; its readers on aux tracks
+only compare it with stock engines (MIDI 29, Drumline 4, the sample engines).
+Taking a pattern over keeps the role's eight controls aside, with the project
+in its [companion](projects.md#open-xycontrol)
+([`aux_tracks.cpp`](../sdk/platform/opxy-1.2.1/aux_tracks.cpp)). GUI and
 audio share no memory: while a machine holds track 12, the GUI writes the mark
 `0x4f584155` to its last live word (57), which stock never locks, through
 `8d5acea8`, which publishes it; the audio hooks read it from the audio side's
@@ -509,7 +515,9 @@ copy of the track's words (`84eab39c + track × 0xe8`). The mark is never a
 stored value: the base setter (`8d5acf28`, then `8d587a20`) bounds no index,
 and stock re-publishes live values now and then (when the sequencer starts),
 so the audio side stays silent until the mark has been missing for 512 of its
-blocks. Taking the track over keeps the role's eight controls aside and sets
+blocks. Giving the track back publishes `0x4f58524c` there instead for a few GUI
+ticks, which ends that hold at once; machines see the stored value of word 57,
+never either mark. Taking the track over keeps the role's eight controls aside and sets
 the machine's defaults through `8d5acf28`; giving it back restores them.
 
 A project load reaches the SDK from inside stock's read (`8d58913e`), before
@@ -559,7 +567,7 @@ declarations retain 64-word output.
 The stock stereo PCM reader consumes packed left/right 16-bit pairs, while
 its output writes alternating 32-bit left/right words.
 
-Requirements: flag 1, an engine ID of 34–62, and page 2 or 7. The engine never
+Requirements: flag 1, an engine ID of 34–255, and page 2 or 7. The engine never
 touches the sample cache or its lock.
 
 Stock's sample predicate and note-region dispatcher also have explicit engine
@@ -689,14 +697,17 @@ A project holds its machine per pattern: track `t` (0–15) starts at
 `+ 0x53f40`, pattern `k` starts at track `+ k * 0x53f4`, and the pattern's
 machine number is the word at pattern `+ 0x18`, the one stock's track-engine
 getter reads. Instrument tracks 0–7 hold engine numbers there and send tracks
-14 and 15 effect numbers; tracks 8–13 hold none. Projects store no page number.
-The reader maps every pattern's number on tracks 0–7 through the companion's
-engines and on 14–15 through its effects, all at once, so two machines can
-trade numbers. A number the companion does not list, a stock machine's, stays.
+14 and 15 effect numbers. Stock keeps 18 on tracks 8–13; on the CV track (11) a
+pattern a machine [took over](#aux-tracks) holds its engine number. Projects
+store no page number. The reader maps every pattern's number on tracks 0–7 and
+11 through the companion's engines and on 14–15 through its effects, all at
+once, so two machines can trade numbers. A number the companion does not list,
+a stock machine's, stays.
 
 A listed machine this firmware lacks (absent, left out of a kit, or now the
 other kind) gets stock's own fallback written into every pattern: Prism (18)
-on an instrument track and no effect (0) on a send. No pattern is left with a
+on an instrument track, which on the CV track is stock's own value, so the
+pattern is CV again, and no effect (0) on a send. No pattern is left with a
 number stock would have to correct, and none can open the machine this
 firmware's layout gave the old number. A number two listed machines claim is
 treated the same way, and a machine listed twice counts once, by its last

@@ -103,7 +103,7 @@ reads stays within these limits; one beyond them is ignored whole:
 - a value it skips (an unknown field, or another owner's section) nested at
   most 8 objects or arrays deep;
 - section names at most 64 bytes;
-- at most 128 distinct machines in `open-xy.machines` (the reference reader
+- at most 256 distinct machines in `open-xy.machines` (the reference reader
   enforces this one too).
 
 ## `open-xy.machines`
@@ -133,11 +133,12 @@ alone knows what the bytes mean. After loading a project, the firmware gives
 each machine its entry when the companion matches the project, and nothing
 otherwise.
 
-`aux` holds, by track index (`"11"` for track 12), each aux track a machine
-[took over](api.md#aux-tracks): `machine`, its ID, and `controls`, the stock
-role's eight controls kept aside, as base64 of eight little-endian 32-bit
-words. After a load the machine holds the track again when the firmware has it;
-otherwise the track keeps its stock role.
+`aux` holds, by track index (`"11"` for track 12) and then by pattern index
+(`"0"` to `"15"`), the stock role's eight controls kept aside for each pattern
+a machine [took over](api.md#aux-tracks), as base64 of eight little-endian
+32-bit words. The project itself holds which machine each pattern runs, in its
+engine number. After a load, a pattern whose machine the firmware lacks is the
+stock role again and gets those controls back.
 
 ## Commands
 
