@@ -78,7 +78,8 @@ def render(prefixes, effects=(), stock_page=(), control=False, aux=False, effect
                   EFFECTS='\n'.join(f'    {prefix}_fx_register();' for prefix in effects),
                   ENGINES='\n'.join(f'    {prefix}_register();' for prefix in prefixes),
                   SCREENS='\n'.join(screens), CATALOG='\n'.join(catalog), ENGINE_SENTINEL=str(ENGINE_SENTINEL),
-                  PROJECT_KEPT=kept)
+                  PROJECT_KEPT=kept,
+                  INSTALLED='\n'.join(f'    if ({prefix}_name_matches(name)) return 1;' for prefix in prefixes))
     source = (ROOT / TEMPLATE).read_text(encoding='utf-8')
     for key, text in values.items():
         require(source.count('@' + key + '@') == 1, 'Startup template placeholder missing')

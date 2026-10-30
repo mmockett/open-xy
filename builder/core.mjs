@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = '4d867c8140ca7146ba24713a93ace5e3ce533cf7961375e2e2d183a1b24fdbe3';
+export const PROFILE_SHA256 = '826215c2780dcbe83372f5460391814c99876c3c34fb7e301434d18e43f544ca';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();

@@ -51,6 +51,7 @@ int sdk_register_screen(const Record* r, const Screen* screen) { return add_scre
 int sdk_engine_ready(const Record* r, const Screen* screen) { return ready(kEngines, kPages, *r, screen); }
 int sdk_screen_ready(const Record* r, const Screen* screen) { return screen_ready(kPages, *r, *screen); }
 int sdk_effect_ready(const Record* r, const Screen* screen) { return ready(kEffects, kPages, *r, screen); }
+int sdk_stock_engine_known(const void* name) { return known(kEngines, static_cast<const StockString*>(name)); }
 int sdk_name_matches(const Record* r, const void* string) {
     return name_matches(*r, static_cast<const StockString*>(string));
 }

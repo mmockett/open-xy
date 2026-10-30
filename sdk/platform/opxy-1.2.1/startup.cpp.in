@@ -19,6 +19,8 @@ int sdk_screen_owned(u32) __asm__("sdk_screen_owned");
 u32 sdk_project_kept(void*) __asm__("sdk_project_kept");
 void sdk_project_loaded(const char*) __asm__("sdk_project_loaded");
 u32 sdk_sample_screen(u32) __asm__("sdk_sample_screen");
+int sdk_engine_installed(const void*) __asm__("sdk_engine_installed");
+int sdk_stock_engine_known(const void*) __asm__("sdk_stock_engine_known");
 @DECLARATIONS@
 }
 
@@ -72,5 +74,14 @@ u32 sdk_sample_screen(u32 page) {
     const u32 engine = opxy::platform::track_engine(track);
 @SAMPLE_SCREENS@
     (void)engine;
+    return 0;
+}
+
+// 1 when this build installs the engine named (presets.cpp): a stock engine, or
+// one of this build's machines by name, since the preset scan can run before
+// they register. An unselected machine's name check is kit_absent.
+int sdk_engine_installed(const void* name) {
+    if (sdk_stock_engine_known(name)) return 1;
+@INSTALLED@
     return 0;
 }

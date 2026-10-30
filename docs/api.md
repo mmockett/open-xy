@@ -631,7 +631,7 @@ number). See the [firmware contract](abi-1.2.1.md#effect-pages-and-shift-rows).
 An effect may draw its own page on the send tracks (SDK 1.7): it declares
 `resources.display` and supplies `display.h`, `display.cpp` and
 `panel.svg.fragment`, exactly as a synth does ([display API](display.md)).
-Each build's layout then gives it a page from 82..127 beside its effect
+Each build's layout then gives it a page from 82..255 beside its effect
 number, as it gives a synth its own. Stock shows the page an effect's
 record names on M1 of a send, so the page replaces stock's FX page there; its
 header names and captions the effect's controls, or its shift row's while
