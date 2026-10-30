@@ -135,15 +135,7 @@ per track, starts on the position's own parameter and is not saved. Display
 inputs carry each position's shown value, its parameter index (`shown`) and
 every parameter's value (`slots`), so a [header value](display.md#frame)
 can format whichever is shown while dials follow their own parameters.
-Browser previews show the parameter last edited at each position.
-
-A synth may leave a slot empty yet keep later parameters at their indices
-(projects save by index): declare it
-`{"id": ..., "label": "", "default": 0, "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent", "absent": true}`,
-with no `control` and no preset entry. It belongs to no position, so no press
-selects it; an empty own slot still starts its position's cycle, so the press
-reaches the position's alternates. Its title is empty and a turn on it changes
-nothing; a machine's display can blank its value with header text `" "`. See
+Browser previews show the parameter last edited at each position. See
 [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/definition.json), whose fourth encoder
 switches between FM ratio and depth.
 
@@ -164,9 +156,7 @@ machines with more than four parameters: their saved selector values now
 address eight slots instead of four.
 
 On custom synth engine pages, Shift + turn edits the same visible parameter
-at one tenth of the normal rate. An enum control moves one choice a detent
-(two on an accelerated turn), Shift or not, as stock's own stepped controls do;
-other controls step about 1% a detent.
+at one tenth of the normal rate. Enum choices keep their ordinary stepping.
 Synth amounts and bounded positive anchor-ratio captions show one decimal
 place; amounts omit the percent suffix. A machine's display can replace them with
 its own [header text](display.md#frame). Custom send effects also
