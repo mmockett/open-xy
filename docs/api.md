@@ -99,6 +99,10 @@ host does fast and the Blackfin does not:
   within 32 bits or split them, as `q31.hpp` does.
 - **Per-sample work that changes only per block**, such as coefficients and
   increments, belongs outside the sample loop.
+- **Sums of table partials** (additive and modal synths) can use
+  [`bank.hpp`](../sdk/include/opxy/bank.hpp): `bank::sine`,
+  `bank::sine_glide` and `bank::quadrature` run hand-scheduled Blackfin loops
+  and match their portable reference bit for bit inside the documented ranges.
 
 Measure and publish the required [hardware CPU readout](profiling.md) before
 submitting a catalog entry. Host estimates do not satisfy that requirement.
