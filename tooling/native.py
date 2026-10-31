@@ -240,8 +240,19 @@ def meter_adapter(path, m, machines, step):
     timed = (f'{call.group(1)}const opxy::u32 meter_started = sdk_meter_start();\n{call.group(0)}\n'
              f'{call.group(1)}sdk_meter_add({index}, meter_started);')
     declarations = ('extern "C" opxy::u32 sdk_meter_start() __asm__("sdk_meter_start");\n'
-                    'extern "C" void sdk_meter_add(opxy::u32, opxy::u32) __asm__("sdk_meter_add");\n')
+                    'extern "C" void sdk_meter_add(opxy::u32, opxy::u32) __asm__("sdk_meter_add");\n'
+                    'extern "C" void sdk_probe_init(opxy::u32, opxy::u32) __asm__("sdk_probe_init");\n'
+                    'extern "C" void sdk_probe_in(opxy::u32, opxy::u32, const opxy::i32*, const opxy::i32*) __asm__("sdk_probe_in");\n'
+                    'extern "C" void sdk_probe_out(opxy::u32, const opxy::i32*, const opxy::i32*) __asm__("sdk_probe_out");\n')
+    if step == 'fx_object':
+        timed = (f'{call.group(1)}sdk_probe_in({index}, object->slot, left, parameters);\n{timed}\n'
+                 f'{call.group(1)}sdk_probe_out(object->slot, left, right);')
     text = text[:call.start()] + timed + text[call.end():]
+    if step == 'fx_object':
+        text = text.replace('    @NAMESPACE@', '@NAMESPACE@')
+        init = re.search(rf'^( *){name}::initialize\(object->state\);$', text, re.M)
+        require(init is not None, 'Probe: no initialize in ' + m.id)
+        text = text[:init.start()] + f'{init.group(1)}sdk_probe_init({index}, slot);\n' + text[init.start():]
     # After the file's includes, where its opxy types exist.
     marker = text.index('extern "C" {')
     Path(path).write_text(text[:marker] + declarations + text[marker:])
