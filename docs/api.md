@@ -114,6 +114,10 @@ host does fast and the Blackfin does not:
 - **Dispatch per sample** through a chain of sections or modes (`switch` on
   an order, an on/off test) costs branches on every sample. Run each section
   over the whole block in turn instead.
+- **Sums of table partials** (additive and modal synths) can use
+  [`bank.hpp`](../sdk/include/opxy/bank.hpp): `bank::sine`,
+  `bank::sine_glide` and `bank::quadrature` run hand-scheduled Blackfin loops
+  and match their portable reference bit for bit inside the documented ranges.
 
 Measure and publish the required [hardware CPU readout](profiling.md) before
 submitting a catalog entry. Host estimates do not satisfy that requirement.
