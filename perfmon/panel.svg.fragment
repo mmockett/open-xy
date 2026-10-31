@@ -1,0 +1,36 @@
+<g id="perfmon_panel">
+  <path id="perfmon_node_0" d="M30,50 L450,50 L450,50.6 L30,50.6 Z" fill="none" stroke="#5a5a5a" stroke-width="0.5"/>
+  <circle id="perfmon_palette_0" cx="640" cy="0" r="1" fill="#000000" stroke="#5a5a5a" stroke-width="0.5"/>
+  <text id="perfmon_text_0" font-family="UniversNextPro-Light" font-size="13" fill="#b4b4b4" transform="matrix(1 0 0 1 30 62)">-</text>
+  <text id="perfmon_text_1" font-family="UniversNextPro-Light" font-size="13" fill="#ebebeb" transform="matrix(1 0 0 1 300 62)">-</text>
+  <text id="perfmon_text_2" font-family="UniversNextPro-Light" font-size="13" fill="#8c8c8c" transform="matrix(1 0 0 1 380 62)">-</text>
+  <text id="perfmon_text_3" font-family="UniversNextPro-Light" font-size="13" fill="#b4b4b4" transform="matrix(1 0 0 1 30 78)">-</text>
+  <text id="perfmon_text_4" font-family="UniversNextPro-Light" font-size="13" fill="#ebebeb" transform="matrix(1 0 0 1 300 78)">-</text>
+  <text id="perfmon_text_5" font-family="UniversNextPro-Light" font-size="13" fill="#8c8c8c" transform="matrix(1 0 0 1 380 78)">-</text>
+  <text id="perfmon_text_6" font-family="UniversNextPro-Light" font-size="13" fill="#b4b4b4" transform="matrix(1 0 0 1 30 94)">-</text>
+  <text id="perfmon_text_7" font-family="UniversNextPro-Light" font-size="13" fill="#ebebeb" transform="matrix(1 0 0 1 300 94)">-</text>
+  <text id="perfmon_text_8" font-family="UniversNextPro-Light" font-size="13" fill="#8c8c8c" transform="matrix(1 0 0 1 380 94)">-</text>
+  <text id="perfmon_text_9" font-family="UniversNextPro-Light" font-size="13" fill="#b4b4b4" transform="matrix(1 0 0 1 30 110)">-</text>
+  <text id="perfmon_text_10" font-family="UniversNextPro-Light" font-size="13" fill="#ebebeb" transform="matrix(1 0 0 1 300 110)">-</text>
+  <text id="perfmon_text_11" font-family="UniversNextPro-Light" font-size="13" fill="#8c8c8c" transform="matrix(1 0 0 1 380 110)">-</text>
+  <text id="perfmon_text_12" font-family="UniversNextPro-Light" font-size="13" fill="#b4b4b4" transform="matrix(1 0 0 1 30 126)">-</text>
+  <text id="perfmon_text_13" font-family="UniversNextPro-Light" font-size="13" fill="#ebebeb" transform="matrix(1 0 0 1 300 126)">-</text>
+  <text id="perfmon_text_14" font-family="UniversNextPro-Light" font-size="13" fill="#8c8c8c" transform="matrix(1 0 0 1 380 126)">-</text>
+  <text id="perfmon_text_15" font-family="UniversNextPro-Light" font-size="13" fill="#b4b4b4" transform="matrix(1 0 0 1 30 142)">-</text>
+  <text id="perfmon_text_16" font-family="UniversNextPro-Light" font-size="13" fill="#ebebeb" transform="matrix(1 0 0 1 300 142)">-</text>
+  <text id="perfmon_text_17" font-family="UniversNextPro-Light" font-size="13" fill="#8c8c8c" transform="matrix(1 0 0 1 380 142)">-</text>
+  <text id="perfmon_text_18" font-family="UniversNextPro-Light" font-size="13" fill="#b4b4b4" transform="matrix(1 0 0 1 30 158)">-</text>
+  <text id="perfmon_text_19" font-family="UniversNextPro-Light" font-size="13" fill="#ebebeb" transform="matrix(1 0 0 1 300 158)">-</text>
+  <text id="perfmon_text_20" font-family="UniversNextPro-Light" font-size="13" fill="#8c8c8c" transform="matrix(1 0 0 1 380 158)">-</text>
+  <text id="perfmon_text_21" font-family="UniversNextPro-Light" font-size="13" fill="#b4b4b4" transform="matrix(1 0 0 1 30 174)">-</text>
+  <text id="perfmon_text_22" font-family="UniversNextPro-Light" font-size="13" fill="#ebebeb" transform="matrix(1 0 0 1 300 174)">-</text>
+  <text id="perfmon_text_23" font-family="UniversNextPro-Light" font-size="13" fill="#8c8c8c" transform="matrix(1 0 0 1 380 174)">-</text>
+  <text id="perfmon_text_24" font-family="UniversNextPro-Light" font-size="13" fill="#b4b4b4" transform="matrix(1 0 0 1 30 190)">-</text>
+  <text id="perfmon_text_25" font-family="UniversNextPro-Light" font-size="13" fill="#ebebeb" transform="matrix(1 0 0 1 300 190)">-</text>
+  <text id="perfmon_text_26" font-family="UniversNextPro-Light" font-size="13" fill="#8c8c8c" transform="matrix(1 0 0 1 380 190)">-</text>
+  <text id="perfmon_text_27" font-family="UniversNextPro-Light" font-size="13" fill="#b4b4b4" transform="matrix(1 0 0 1 30 206)">-</text>
+  <text id="perfmon_text_28" font-family="UniversNextPro-Light" font-size="13" fill="#ebebeb" transform="matrix(1 0 0 1 300 206)">-</text>
+  <text id="perfmon_text_29" font-family="UniversNextPro-Light" font-size="13" fill="#8c8c8c" transform="matrix(1 0 0 1 380 206)">-</text>
+  <text id="perfmon_text_30" font-family="UniversNextPro-Light" font-size="10" fill="#8c8c8c" transform="matrix(1 0 0 1 300 46)">now, peak % of block</text>
+  <text id="perfmon_text_31" font-family="UniversNextPro-Light" font-size="10" fill="#6e6e6e" transform="matrix(1 0 0 1 30 46)">live, not a benchmark</text>
+</g>

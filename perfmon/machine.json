@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "sdk": "1.7",
+  "kind": "synth",
+  "description": "Test build only: each custom machine's live CPU, now and peak. Silent."
+}

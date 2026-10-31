@@ -1,0 +1,68 @@
+{
+ "schema": 1,
+ "id": "perfmon",
+ "name": "Perf Monitor",
+ "parameters": [
+  {
+   "id": "row",
+   "label": "Row",
+   "default": 0,
+   "mapping": {
+    "kind": "linear",
+    "minimum": 0,
+    "maximum": 1
+   },
+   "display": "percent"
+  },
+  {
+   "id": "hold",
+   "label": "Hold",
+   "default": 0.2,
+   "mapping": {
+    "kind": "linear",
+    "minimum": 0,
+    "maximum": 1
+   },
+   "display": "percent"
+  },
+  {
+   "id": "unused_a",
+   "label": "Unused",
+   "default": 0,
+   "mapping": {
+    "kind": "linear",
+    "minimum": 0,
+    "maximum": 1
+   },
+   "display": "percent"
+  },
+  {
+   "id": "unused_b",
+   "label": "Unused 2",
+   "default": 0,
+   "mapping": {
+    "kind": "linear",
+    "minimum": 0,
+    "maximum": 1
+   },
+   "display": "percent"
+  }
+ ],
+ "presets": {},
+ "resources": {
+  "voiceBytes": 4,
+  "voiceAlignment": 4,
+  "voiceCapacity": 1,
+  "sharedBytes": 0,
+  "outputPeakQ31": 1073741824,
+  "display": {
+   "stateBytes": 8,
+   "stateAlignment": 4,
+   "paths": 0,
+   "points": 0,
+   "nodes": 1,
+   "texts": 32,
+   "palette": 1
+  }
+ }
+}

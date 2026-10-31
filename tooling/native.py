@@ -200,7 +200,7 @@ def plan(machines, profile=None):
 
 # The SDK's shared objects, after every machine's. Sources are TEMPLATES/<unit>.cpp
 # or .s, except the generated units and the Blackfin runtime.
-SDK_UNITS = ('divide', 'bank', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label', 'benchmark', 'benchmark_clock', 'voice_clock',
+SDK_UNITS = ('divide', 'bank', 'meter', 'meter_table', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label', 'benchmark', 'benchmark_clock', 'voice_clock',
              'hook', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
@@ -213,6 +213,39 @@ UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callba
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
                                'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock'), 'samples')
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
+
+
+def generate_meter_table(folder, machines):
+    """Test build only (meter.cpp): the machines the live meter times, in collection order."""
+    names = ', '.join(json.dumps(m.native_name) for m in machines)
+    path = Path(folder) / 'meter_table.cpp'
+    path.write_text('#include <opxy/types.hpp>\nextern "C" {\n'
+                    'extern const char* const sdk_meter_names[] __asm__("sdk_meter_names");\n'
+                    'extern const opxy::u32 sdk_meter_count __asm__("sdk_meter_count");\n'
+                    f'const char* const sdk_meter_names[] = {{{names}}};\n'
+                    f'const opxy::u32 sdk_meter_count = {len(machines)};\n}}\n')
+    return path
+
+
+def meter_adapter(path, m, machines, step):
+    """Test build only: times a generated voice or effect adapter's render call for the
+    live meter, leaving the template (which the browser kit shares) as it is."""
+    if step not in ('voice', 'fx_object'):
+        return path
+    text = Path(path).read_text()
+    index = machines.index(m)
+    name = m.definition['id']
+    call = re.search(rf'^( *){name}::(render|process)\(.*;$', text, re.M)
+    require(call is not None, 'Meter: no render call in ' + m.id)
+    timed = (f'{call.group(1)}const opxy::u32 meter_started = sdk_meter_start();\n{call.group(0)}\n'
+             f'{call.group(1)}sdk_meter_add({index}, meter_started);')
+    declarations = ('extern "C" opxy::u32 sdk_meter_start() __asm__("sdk_meter_start");\n'
+                    'extern "C" void sdk_meter_add(opxy::u32, opxy::u32) __asm__("sdk_meter_add");\n')
+    text = text[:call.start()] + timed + text[call.end():]
+    # After the file's includes, where its opxy types exist.
+    marker = text.index('extern "C" {')
+    Path(path).write_text(text[:marker] + declarations + text[marker:])
+    return path
 
 
 def service_users(machines):
@@ -387,6 +420,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_project_companion_table(folder, machines)), obj)
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
+            if step == 'meter_table':
+                return cxx(str(generate_meter_table(folder, machines)), obj)
             if step == 'divide':
                 return assemble_unit(ROOT / RUNTIME_ASM, obj)
             if step == 'bank':
@@ -409,7 +444,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                   'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
                   'registration': lambda: generate_registration(folder, m),
                   'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True)}[step]
-        return cxx(str(source()), obj, m)
+        return cxx(str(meter_adapter(source(), m, machines, step)), obj, m)
 
     for name, m, step in plan(machines, profile):
         obj = directory / name
