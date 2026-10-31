@@ -35,6 +35,18 @@ inline i32 add(i32 a, i32 b) {
 #endif
 }
 
+inline i32 subtract(i32 a, i32 b) {
+#if defined(__bfin__)
+    // Blackfin's saturating subtract: the same result as the portable path below in one instruction.
+    i32 result;
+    __asm__("%0 = %1 - %2 (S);" : "=d"(result) : "d"(a), "d"(b) : "ASTAT");
+    return result;
+#else
+    const i64 difference = static_cast<i64>(a) - b;
+    return difference > maximum ? maximum : difference < -maximum - 1 ? -maximum - 1 : static_cast<i32>(difference);
+#endif
+}
+
 inline i32 half(i32 value) {
 #if defined(__bfin__)
     i32 result;
