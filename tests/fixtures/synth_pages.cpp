@@ -32,6 +32,17 @@ void stock_lfo_set(u32 track, u32 value) {
     lfo[track] = value;
     ++lfo_sets;
 }
+// Stock's held keys by number (M1..M4 are 6..9) and Shift.
+u32 held[56], shift;
+u32 stock_key_held(u32 key) { require(key < 56, "Key outside stock's list"); return held[key]; }
+u32 stock_shift() { return shift; }
+// Holds page key M<n> (1..4) for a tick, then lets it go for one.
+void press(u32 n) {
+    held[5 + n] = 1;
+    sdk_synth_pages();
+    held[5 + n] = 0;
+    sdk_synth_pages();
+}
 int ready() { return 1; }
 }
 
@@ -59,6 +70,8 @@ Address opxy::platform::host_stock_address(Address address) {
     if (address == 0x8d58781c) return reinterpret_cast<Address>(&stock_engine);
     if (address == 0x8d5879c0) return reinterpret_cast<Address>(&stock_lfo_on);
     if (address == 0x8d587984) return reinterpret_cast<Address>(&stock_lfo_set);
+    if (address == 0x8d5b7d7c) return reinterpret_cast<Address>(&stock_key_held);
+    if (address == 0x8d51f184) return reinterpret_cast<Address>(&stock_shift);
     std::abort();
 }
 
@@ -92,7 +105,7 @@ int main() {
     page = 2;
     sdk_synth_pages();
     require(page == 0 && sets == 2, "Filter page not replaced by the page before");
-    require(sdk_synth_page_key(2) == 3 && sdk_synth_page_key(2) == 0, "M3 press not kept once");
+    require(sdk_synth_page_key(2) == 0, "A page change taken for a key press");
     // Selecting the track while on another track's envelope page: the engine page.
     selected = 3;
     page = 1;
@@ -100,14 +113,28 @@ int main() {
     selected = 2;
     sdk_synth_pages();
     require(page == 0 && sets == 3, "Hidden page kept after selecting the track");
-    // Pressing a hidden page's key on the selected track is kept for its
-    // machine, once; selecting the track while on that page is not a press.
-    require(sdk_synth_page_key(2) == 0, "Track selection taken for a key press");
-    sdk_synth_pages();  // the next tick, on the engine page
-    page = 2;
+    // Each page key pressed on the selected track is kept for its machine,
+    // once, whether its page is hidden or shown, and held keys count once.
+    for (u32 n = 1; n <= 4; ++n) {
+        press(n);
+        require(sdk_synth_page_key(3) == 0 && sdk_synth_page_key(2) == n && sdk_synth_page_key(2) == 0,
+                "Page key not kept once for its track");
+    }
+    held[8] = 1;
     sdk_synth_pages();
-    require(page == 0 && sdk_synth_page_key(3) == 0 && sdk_synth_page_key(2) == 3 && sdk_synth_page_key(2) == 0,
-            "M3 press not kept once for its track");
+    sdk_synth_page_key(2);
+    sdk_synth_pages();
+    held[8] = 0;
+    require(sdk_synth_page_key(2) == 0, "A held page key taken for another press");
+    // Shift + a page key is stock's; a synth hiding nothing gets no keys.
+    shift = 1;
+    press(1);
+    shift = 0;
+    require(sdk_synth_page_key(2) == 0, "Shift + M1 taken for a page key");
+    selected = 3;
+    press(2);
+    require(sdk_synth_page_key(3) == 0, "Page key kept for a synth hiding nothing");
+    selected = 2;
     // An aux track nothing holds is left alone, whatever its stock engine word says.
     const u32 sets_before = sets;
     selected = 9;
@@ -124,7 +151,11 @@ int main() {
     aux_tab = 3;
     sdk_synth_pages();
     require(aux_tab == 0 && aux_sets == 1 && sets == sets_before, "Held aux track's hidden tab kept");
-    require(sdk_synth_page_key(11) == 4 && sdk_synth_page_key(11) == 0, "M4 press on a held aux track not kept once");
+    // M1 and M2 leave CV's tab as it was; they still reach the machine.
+    for (u32 n = 1; n <= 4; ++n) {
+        press(n);
+        require(sdk_synth_page_key(11) == n && sdk_synth_page_key(11) == 0, "Page key on a held aux track not kept once");
+    }
     aux_engines[11] = 0;
     sdk_synth_pages();
 

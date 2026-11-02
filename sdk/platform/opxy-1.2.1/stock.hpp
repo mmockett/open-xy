@@ -53,11 +53,11 @@ inline u32 project_bpm_x10() {
 inline u32 track_engine(u32 track) { return stock<u32(u32)>(0x8d58781c)(track); }
 inline u32 selected_track() { return stock<u32()>(0x8d4d6f14)(); }
 inline bool shift_held() { return stock<u32()>(0x8d51f184)() != 0; }
+// Stock's held-key list, by key number (M1..M4 are 6..9, the encoders 10..13).
+inline bool key_held(u32 key) { return stock<u32(u32)>(0x8d5b7d7c)(key) != 0; }
 // Stock's held-key list survives encoder turns; its separate pending-click
 // flag does not. A turn while held suppresses the release's click action.
-inline bool encoder_held(u32 encoder) {
-    return encoder < 4 && stock<u32(u32)>(0x8d5b7d7c)(10 + encoder) != 0;
-}
+inline bool encoder_held(u32 encoder) { return encoder < 4 && key_held(10 + encoder); }
 // The stored pad record of a track's key, or null.
 inline void* pad_region(u32 track, u32 key) {
     u32 scratch;

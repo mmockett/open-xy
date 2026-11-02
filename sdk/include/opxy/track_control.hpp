@@ -72,8 +72,9 @@ struct Input {
     // The project's tempo and the song position (96 ticks per quarter note,
     // advancing only while playing), for anything that follows the music.
     Transport transport;
-    // A stock page key the machine hides ("hidePages"), pressed on its track
-    // since the last tick: 2..4 for M2..M4, or 0. The page does not change.
+    // For a machine that hides pages ("hidePages"): a page key pressed on its
+    // track since the last tick, without Shift: 1..4 for M1..M4, or 0. A
+    // hidden page's key leaves the page as it was.
     u32 page_key;
     // 1 while Shift is held.
     u32 shift;

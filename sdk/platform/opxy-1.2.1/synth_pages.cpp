@@ -10,15 +10,19 @@
 
 // 8c0b19c4 sets the page word M1..M4 select, wherever stock does; the page
 // keys, track changes and menus all reach it. A tick after it shows a page the
-// selected synth hides, the page shown before it comes back. When the track
-// was already selected, that was a press of the page's key: it is kept for
-// the track's machine (sdk_synth_page_key).
+// selected synth hides, the page shown before it comes back.
 //
 // On aux tracks the page word is 0801eae4 (M1..M4 as 0..3), set by the aux
 // controller's 8c08f74c(controller, tab), which uses only the tab. A held
 // track's hidden tab shows the machine's own page (aux_tracks.cpp), so nothing
-// flashes; the tick sets the tab back as above. Stock's M2 selects no tab on
-// tracks without a second page (CV among them), so it does nothing there.
+// flashes; the tick sets the tab back as above.
+//
+// Page keys reach a machine hiding pages from stock's held-key list, not from
+// the page word: M1 and a shown page's key leave the word as it was, and
+// stock's M2 selects no tab on tracks without a second page (CV among them).
+// Each tick keeps the first of M1..M4 to go down since the last, without
+// Shift (Shift + M1 is the aux engine list), for the selected track's machine
+// (sdk_synth_page_key).
 namespace {
 using opxy::u32;
 using opxy::platform::SynthControls;
@@ -52,10 +56,22 @@ const SynthControls* owned(u32 engine) {
 // The engine whose machine runs on a track: the machine holding an aux track.
 u32 engine_on(u32 track) { return track < kTracks ? track_engine(track) : control_engine(track); }
 
-// The last stock page shown that the selected synth does not hide, and the
-// track selected then.
-u32 page_before, track_before = kAllTracks;
+// The last stock page shown that the selected synth does not hide.
+u32 page_before;
+// Stock's key numbers for M1..M4, and those held at the last tick, a bit each.
+const u32 kPageKeys = 6;
+u32 keys_down;
 u32 key_track = kAllTracks, key_number;
+
+// The page keys that went down since the last tick.
+u32 page_keys_pressed() {
+    u32 down = 0;
+    for (u32 k = 0; k < opxy::page_controls; ++k)
+        if (key_held(kPageKeys + k)) down |= 1u << k;
+    const u32 pressed = down & ~keys_down;
+    keys_down = down;
+    return pressed;
+}
 }
 
 void sdk_synth_pages() {
@@ -66,21 +82,21 @@ void sdk_synth_pages() {
         const SynthControls* hiding = owned(track_engine(t));
         if (hiding && (hiding->hidden_pages >> kLfoPage & 1) && lfo_on(t)) lfo_off(t);
     }
+    const u32 pressed = page_keys_pressed();
     const u32 track = selected_track();
     if (track >= kAllTracks) return;
-    const u32 page = page_word(track);
     const u32 engine = engine_on(track);
     const SynthControls* m = engine ? owned(engine) : nullptr;
-    const bool same_track = track == track_before;
-    track_before = track;
+    if (m && m->hidden_pages && pressed && !shift_held()) {
+        key_track = track;
+        key_number = 1;
+        while (!(pressed >> (key_number - 1) & 1)) ++key_number;
+    }
+    const u32 page = page_word(track);
     if (page >= opxy::page_controls) return;
     if (!m || !(m->hidden_pages >> page & 1)) {
         page_before = page;
         return;
-    }
-    if (same_track && !(m->hidden_pages >> page_before & 1)) {
-        key_track = track;
-        key_number = page + 1;
     }
     set_page(track, m->hidden_pages >> page_before & 1 ? 0 : page_before);
 }

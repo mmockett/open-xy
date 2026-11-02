@@ -321,7 +321,7 @@ copy's first call and whenever a copy arrives on a track.
 | `edit_count`, `edits` | While capturing: up to 32 encoder edits of other instrument tracks' parameters since the last tick, oldest first, as track, index and edited value |
 | `elapsed_us` | Microseconds since the previous tick, from the core clock: 0 on the first tick after a reset, at most one second |
 | `transport` | The project's tempo in tenths of BPM (0 when unknown), the song position in 96ths of a quarter note, which advances only while playing, and whether the sequencer plays |
-| `page_key` | A stock page key the synth hides (`"hidePages"`), pressed on its track since the last tick: 2, 3 or 4 for M2, M3 or M4, else 0. The page stays as it was, so the key is free for the machine |
+| `page_key` | For a synth that hides pages (`"hidePages"`): a page key pressed on its track since the last tick, without Shift: 1, 2, 3 or 4 for M1..M4, else 0, read from stock's held keys, so M1 and keys stock ignores (M2 on CV) count too. A hidden page's key leaves the page as it was, so the key is free for the machine |
 | `shift` | 1 while Shift is held |
 | `turn_count`, `turns` | While the copy takes its own turns (below): up to 16 detents of its track's encoders since the last tick, oldest first, each the parameter slot its position shows (0..7, after presses) and a direction, +1 or -1 |
 
