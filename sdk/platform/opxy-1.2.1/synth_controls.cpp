@@ -15,6 +15,7 @@ const char* sdk_fx_title(opxy::u32, opxy::u32) __asm__("sdk_fx_title");
 const char* sdk_synth_title(opxy::u32, opxy::u32) __asm__("sdk_synth_title");
 }
 opxy::u32 (*sdk_aux_engine)(opxy::u32) = nullptr;
+bool (*sdk_control_turn)(opxy::u32, opxy::u32, const opxy::i32*) = nullptr;
 
 namespace {
 using opxy::u32;
@@ -112,6 +113,12 @@ opxy::i32 stored_value(u32 track, u32 slot) {
     return *reinterpret_cast<const volatile opxy::i32*>(kProject + 0x4080 + track * 0xe8 + slot * 4);
 }
 
+// A detent the track's machine takes as its own (track control), which then
+// edits nothing.
+bool taken(u32 track, u32 slot, u32 event) {
+    return sdk_control_turn && sdk_control_turn(track, slot, reinterpret_cast<const opxy::i32*>(event));
+}
+
 u32 shown(u32 track, u32 position) {
     Track* t;
     return position < opxy::page_controls && machine(track, t) ? t->slots[position] : position;
@@ -202,6 +209,7 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
     const SynthControls* m = index < opxy::page_controls ? machine(track, t) : nullptr;
     if (m) {
         index = t->slots[index];
+        if (taken(track, index, event)) return 1;
         if (event && (m->continuous & (1u << index)) && fine_turn) {
             // Stock consumes all three words synchronously; keep detents and
             // acceleration intact for its parameter-lock/quantized paths.
@@ -221,6 +229,7 @@ u32 sdk_effect_turn(u32 project, u32 track, u32 index, u32 event) {
     Track* t;
     const SynthControls* m = nullptr;
     if (index < opxy::page_controls) m = aux_engine(track) ? machine(track, t) : send_effect(track, t);
+    if (m && !m->effect && taken(track, t->slots[index], event)) return 1;
     // With Shift, an effect's shift row: one choice per detent, packed into
     // the send track's shift-row word through stock's set.
     if (m && m->shift && shift_held()) {

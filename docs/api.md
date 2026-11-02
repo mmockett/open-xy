@@ -322,6 +322,8 @@ copy's first call and whenever a copy arrives on a track.
 | `elapsed_us` | Microseconds since the previous tick, from the core clock: 0 on the first tick after a reset, at most one second |
 | `transport` | The project's tempo in tenths of BPM (0 when unknown), the song position in 96ths of a quarter note, which advances only while playing, and whether the sequencer plays |
 | `page_key` | A stock page key the synth hides (`"hidePages"`), pressed on its track since the last tick: 2, 3 or 4 for M2, M3 or M4, else 0. The page stays as it was, so the key is free for the machine |
+| `shift` | 1 while Shift is held |
+| `turn_count`, `turns` | While the copy takes its own turns (below): up to 16 detents of its track's encoders since the last tick, oldest first, each the parameter slot its position shows (0..7, after presses) and a direction, +1 or -1 |
 
 `overlay` arrives empty; `opxy::control::add` appends up to 64 entries, each a
 track, parameter index and value for this tick. Entries for the machine's own
@@ -345,6 +347,23 @@ from MIDI or presets are not captured. Like the display, `control` is bounded
 and allocation-free; it is not an audio callback. Browser previews do not run
 it.
 
+A machine can play notes on instrument tracks: `opxy::control::play(overlay,
+track, pitch, velocity, length_us)` appends up to 32 a tick, for tracks 0..7,
+pitches 0..127 and velocities 1..127; others are dropped. The SDK starts each
+at once through stock's live note-on, as the track's keyboard would play it,
+so the track's own machine sounds it, but stock never records it. The SDK
+ends each note after its length (at most eight seconds), when the sequencer
+stops, or when the copy leaves its track, and a note on a track and pitch the
+copy already holds ends that one first. At most 48 notes from every machine
+sound at once; more are dropped. Notes start on GUI ticks, so a machine that
+follows `transport` plays each when the first tick after its time arrives.
+
+Setting `overlay.own_turns` to 1 asks for the machine's own encoders for the
+next tick: while it does, a turn of its track's encoders on its page edits
+nothing and arrives in `turns` instead, so the machine can give its pages
+controls of its own (with `hidePages`, M2..M4 can be its pages). Presses still
+switch alternates, and Shift does not change the slot.
+
 A unique machine can keep data with each project, such as Morphose's states.
 It adds `"savedBytes": n` (1..8192) to `trackControl` and supplies:
 
@@ -360,7 +379,7 @@ the project has none (saved before, on stock, or without the machine) or is a
 new one, so the machine can start empty. Both run on the GUI side.
 
 A machine's control and display are compiled separately, so they share no
-variables. The control can pass four words to its display each tick in
+variables. The control can pass sixteen words to its display each tick in
 `overlay.display`, which the display reads with
 `opxy::control::from_control(index)`: the words of the copy on the selected
 track, 0 when it did not run, and always 0 in browser previews.
