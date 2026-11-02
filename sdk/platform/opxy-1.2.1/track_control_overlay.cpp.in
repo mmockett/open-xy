@@ -9,6 +9,7 @@
 // the page of a track it overlays.
 #include "screen.hpp"
 #include "registration.hpp"
+#include "synth_controls.hpp"
 #include "track_control.hpp"
 
 using opxy::u32;
@@ -102,6 +103,7 @@ char* construct(char* state, u32 page) {
 // takes the slot.
 extern "C" void sdk_overlay_startup() {
     if (!sdk_control_machine_count) return;
+    sdk_control_turn = sdk_control_turn_offer;
     const platform::Record record = {nullptr, nullptr, nullptr, nullptr, reinterpret_cast<const char*>(kPage), 0};
     const platform::Screen screen = {reinterpret_cast<char*>(&overlay), sizeof(overlay),
                                      reinterpret_cast<const char*>(&kVTable), kAsset, construct};
