@@ -50,6 +50,15 @@ u32 stock_edit(u32, u32, const u32*, u32) { ++fallback; return 1234; }
 u32 turn(u32, u32 selected, u32 slot, u32) { require(selected == track); turned_slot = slot; return slot; }
 const char* title(u32, u32) { return "stock"; }
 u32 text(u32, const char*) { return 0; }
+u32 stock_scrambles, generated;
+void stock_scramble() { ++stock_scrambles; }
+i32 generator(u32 slot, u32 flag) { require(slot == 0 && flag == 0); return static_cast<i32>(0x2545f491u * ++generated); }
+// The 33-model kit narrows its third control to 40..50 and its first to 100.
+void narrow(u32, u32 slot, u8* low, u8* high) {
+    require(*low == 0 && *high == 127);
+    if (slot == 0) *low = *high = 100;
+    if (slot == 2) { *low = 40; *high = 50; }
+}
 void shown_at(u32 a, u32 b, u32 c, u32 d, int line) {
     u8 slots[4]; sdk_synth_shown(track, slots);
     require_at(slots[0] == a && slots[1] == b && slots[2] == c && slots[3] == d, line);
@@ -66,7 +75,7 @@ static const char* const group_names[] = {"ONE", "TWO"};
 const opxy::platform::DrumMachine sdk_drum_machines[] = {
     {reinterpret_cast<const char*>(34), ready, 2, defaults, label, name, count},
     {reinterpret_cast<const char*>(37), ready, 5, defaults, label, name, count, 2, group_sizes, group_names},
-    {reinterpret_cast<const char*>(38), ready, 33, defaults, label, name, count}
+    {reinterpret_cast<const char*>(38), ready, 33, defaults, label, name, count, 0, nullptr, nullptr, narrow}
 };
 const opxy::u32 sdk_drum_machine_count = 3;
 const opxy::platform::SynthControls sdk_synth_controls[] = {
@@ -95,6 +104,8 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     case 0x8d5ad5bc: return reinterpret_cast<Address>(&turn);
     case 0x8d506c4c: return reinterpret_cast<Address>(&title);
     case 0x8d6011f0: return reinterpret_cast<Address>(&text);
+    case 0x8d4d622c: return reinterpret_cast<Address>(&stock_scramble);
+    case 0x8c0b5230: return reinterpret_cast<Address>(&generator);
     default: std::abort();
     }
 }
@@ -251,6 +262,60 @@ int main() {
         sdk_drum_edit(55, 2, back5, 0);
         require(sdk_drum_values(0, &m, v) && v[6] == 122);
         sdk_synth_press(0); ++presses; shown(0,1,2,3);
+        engine = 34; key = 53;
+    }
+
+    {
+        // Scramble: the drum check reads an owned kit as Drumline (4); its branch
+        // re-rolls every key's model and each control the model uses, keeps
+        // the rest, keeps each choke group, marks and publishes every key.
+        require(sdk_scramble_engine(0) == 4);
+        engine = 34; key = 53;
+        for (u32 pad = 0; pad < 24; ++pad) {
+            u8* record = reinterpret_cast<u8*>(regions[pad]);
+            record[24] = static_cast<u8>(pad % 4 == 0 ? (2 << 4) | 3 : 0);   // a choke group on every fourth, unmarked
+        }
+        const u32 before = publications, changes = dirty;
+        u32 seen[2] = {};
+        for (u32 round = 0; round < 8; ++round) {
+            u8 was[24][8];
+            for (u32 pad = 0; pad < 24; ++pad) { u8 m; key = 53 + pad; require(sdk_drum_values(0, &m, was[pad])); }
+            key = 53;
+            sdk_drum_scramble();
+            require(publications == before + 24 * (round + 1) && dirty == changes + round + 1 && !stock_scrambles);
+            for (u32 pad = 0; pad < 24; ++pad) {
+                const u8* record = reinterpret_cast<const u8*>(regions[pad]);
+                require(drum_marked(record[24]) && (record[24] >> 4) == (pad % 4 == 0 ? 2u : 0u));
+                u8 m = 99, v[8];
+                require(drum_unpack(regions[pad] + 1, &m, v) && m < 2);
+                ++seen[m];
+                for (u32 slot = 0; slot < 8; ++slot) require(v[slot] <= 127);
+                if (m == 0) require(v[2] == was[pad][2] && v[7] == was[pad][7]);   // unnamed in the full model: kept
+                if (m == 1) for (u32 slot = 3; slot < 8; ++slot) require(v[slot] == was[pad][slot]);   // beyond the short model's count
+            }
+        }
+        require(seen[0] > 20 && seen[1] > 20);   // both models come up
+        u8 first[8], again[8], m;
+        require(sdk_drum_values(0, &m, first));
+        sdk_drum_scramble();
+        require(sdk_drum_values(0, &m, again) && std::memcmp(first, again, 8));   // each scramble differs
+        // A kit's own range: the 33-model kit's first control is always 100, its third 40..50.
+        engine = 38; key = 55;
+        require(sdk_scramble_engine(0) == 4);
+        sdk_drum_scramble();
+        for (u32 pad = 0; pad < 24; ++pad) {
+            u8 v[8];
+            key = 53 + pad;
+            require(sdk_drum_values(0, &m, v) && m < 33 && v[0] == 100);
+            if (m != 0) require(v[2] >= 40 && v[2] <= 50);   // the full model leaves slot 2 unnamed
+        }
+        // Another engine keeps stock's Drumline scramble.
+        engine = 4;
+        require(sdk_scramble_engine(0) == 4);
+        sdk_drum_scramble();
+        require(stock_scrambles == 1);
+        engine = 77;
+        require(sdk_scramble_engine(0) == 77);
         engine = 34; key = 53;
     }
 
