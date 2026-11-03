@@ -79,3 +79,48 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     stock<void(u32)>(0x8d4d5f18)(key);
     return 0;
 }
+
+// 8c0b5314: the track menu's scramble (hold the track key) asks the selected
+// track's engine and takes its Drumline branch for 4, as an owned kit is.
+opxy::u32 sdk_scramble_engine(opxy::u32 track) {
+    return sdk_drum_alias(opxy::platform::stock<opxy::u32(opxy::u32)>(0x8d58781c)(track));
+}
+
+// 8c0b5430: the Drumline branch. Stock re-rolls each of the 24 pads'
+// instrument type and settings, keeping its choke group; a kit re-rolls each
+// key's model, and every control the model uses within its scramble range,
+// then publishes them as an edit does. Other tracks keep stock's.
+void sdk_drum_scramble() {
+    using namespace opxy;
+    using namespace opxy::platform;
+    const u32 track = byte(kSelectedTrack);
+    const DrumMachine* machine = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
+    if (!machine) return stock<void()>(0x8d4d622c)();
+    const DrumCodec codec = drum_codec(machine->model_count, machine->count);
+    if (!codec.fits() || !machine->model_count) return;
+    // Stock's own generator seeds it, so each scramble differs.
+    u32 seed = static_cast<u32>(stock<i32(u32, u32)>(0x8c0b5230)(0, 0)) | 1u;
+    const auto next = [&seed](u32 span) {
+        seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+        return ((seed >> 16) * span) >> 16;   // 0 .. span - 1, without a divide
+    };
+    for (u32 key = 53; key < 77; ++key) {
+        void* region = pad_region(track, key);
+        u8 model, controls[kDrumControlCount];
+        if (!drum_region_values(*machine, track, key, region, &model, controls)) continue;
+        model = static_cast<u8>(next(machine->model_count));
+        for (u32 slot = 0; slot < kDrumControlCount; ++slot) {
+            if (!machine->used(model, slot)) continue;
+            u8 low = 0, high = 127;
+            if (machine->scramble_range) machine->scramble_range(model, slot, &low, &high);
+            if (high > 127) high = 127;
+            if (low > high) low = high;
+            controls[slot] = static_cast<u8>(low + next(high - low + 1u));
+        }
+        unsigned char* record = static_cast<unsigned char*>(region);
+        if (!drum_pack(model, controls, static_cast<i32*>(region) + 1, codec)) continue;
+        record[24] = drum_mark(record[24]);
+        stock<void(u32)>(0x8d4d5f18)(key);
+    }
+    stock<void()>(0x8d585ee8)();
+}

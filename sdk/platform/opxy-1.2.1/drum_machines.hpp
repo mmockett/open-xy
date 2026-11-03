@@ -16,6 +16,9 @@ struct DrumMachine {
     u32 group_count;
     const u8* group_sizes;
     const char* const* group_names;
+    // The range the track menu's scramble draws a model's control from, 0..127
+    // unless the machine narrows it (its optional scramble_range).
+    void (*scramble_range)(u32 model, u32 slot, u8* low, u8* high);
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
     // A model's group (0 without groups) and the group's first model.
     u32 group(u32 model) const {
@@ -56,4 +59,8 @@ const char* sdk_drum_choke(opxy::u32 track) __asm__("sdk_drum_choke");
 opxy::u32 sdk_drum_choke_choice(opxy::u32 track) __asm__("sdk_drum_choke_choice");
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine)
     __asm__("sdk_drum_edit");
+// The track menu's scramble: the selected track's engine as its drum check
+// reads it, and the drum branch, which re-rolls an owned kit's keys.
+opxy::u32 sdk_scramble_engine(opxy::u32 track) __asm__("sdk_scramble_engine");
+void sdk_drum_scramble() __asm__("sdk_drum_scramble");
 }

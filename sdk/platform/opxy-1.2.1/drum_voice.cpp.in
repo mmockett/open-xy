@@ -88,6 +88,12 @@ inline bool ended(Absent) { return false; }
 template <class R> bool ended(R value) { return static_cast<bool>(value); }
 template <class V, class S> bool query(V& voice, S& state) { return ended(finished(voice, state)); }
 }
+// An engine may narrow the range scramble draws a control from with
+// `void scramble_range(u32 model, u32 slot, u8* low, u8* high)` in its namespace;
+// an exact non-template match wins over this fallback, which keeps 0..127.
+namespace @NAMESPACE@ {
+template <class M, class S> void scramble_range(M, S, opxy::u8*, opxy::u8*) {}
+}
 extern "C" {
 extern const void* const @PREFIX@_vtable[];
 // A note keeps its handle's voice or takes one: a free voice, else the one
@@ -234,6 +240,10 @@ void @PREFIX@_drum_defaults(opxy::u32 key, opxy::u8* model, opxy::u8* controls) 
 const char* @PREFIX@_drum_label(opxy::u32 model, opxy::u32 slot) { return @NAMESPACE@::parameter_name(model, slot); }
 const char* @PREFIX@_drum_model_name(opxy::u32 model) { return @NAMESPACE@::model_name(model); }
 opxy::u32 @PREFIX@_drum_count(opxy::u32 model) { return @NAMESPACE@::parameter_count(model); }
+void @PREFIX@_drum_scramble_range(opxy::u32 model, opxy::u32 slot, opxy::u8* low, opxy::u8* high) __asm__("@PREFIX@_drum_scramble_range");
+void @PREFIX@_drum_scramble_range(opxy::u32 model, opxy::u32 slot, opxy::u8* low, opxy::u8* high) {
+    @NAMESPACE@::scramble_range(model, slot, low, high);
+}
 const void* const @PREFIX@_vtable[11] = {
     reinterpret_cast<const void*>(&@PREFIX@_destroy), reinterpret_cast<const void*>(&@PREFIX@_destroy),
     reinterpret_cast<const void*>(&render_normal), reinterpret_cast<const void*>(&@PREFIX@_render),
