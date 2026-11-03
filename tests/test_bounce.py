@@ -341,7 +341,7 @@ class Render(unittest.TestCase):
 
     def test_bisect_runs_its_steps_in_order_and_touches_nothing_else(self):
         source = (Path(native.ROOT) / 'sdk/platform/opxy-1.2.1/bounce_render.cpp').read_text()
-        self.assertIn('const bool kDiagnose = true;', source)
+        self.assertIn('const u32 kDiagnose = ', source)
         body = source[source.index('void diagnose() {'):]
         body = body[:body.index('\n}\n')]
         order = ['delay_ticks(kDiagBlocked);', 'set_priority(2);', 'wake_until(first, kDiagBelow, false',
@@ -355,6 +355,27 @@ class Render(unittest.TestCase):
             self.assertNotIn(call, body)
         wake = source[source.index('void wake_until('):]
         self.assertIn('if (logging && waited >= next_line)', wake[:wake.index('\n}\n')])
+
+    def test_diag_002_is_003s_idle_window_without_the_render(self):
+        source = (Path(native.ROOT) / 'sdk/platform/opxy-1.2.1/bounce_render.cpp').read_text()
+        self.assertIn('const u32 kDiagnose = 2;', source)
+        self.assertIn('if (kDiagnose == 1 && !(semaphore = create_semaphore())) return;', source)
+
+        def body(name):
+            part = source[source.index(name):]
+            return part[:part.index('\n}\n')]
+        render, idle = body('void renderer(void*) {'), body('void idle() {')
+        # The same start: clocks, step line (with its settle), the first idle line at 1 s, then every 10 s.
+        start = render[render.index('const u32 first'):render.index('for (;;)')]
+        self.assertIn(start, idle)
+        self.assertIn('if (waited >= kIdleMillis) break;', idle)
+        self.assertIn('next_line += kIdleLogMillis;', idle)
+        self.assertIn('delay_ticks(kIdleWake);', idle)
+        self.assertIn('const u32 kIdleMillis = 600000;', source)
+        self.assertIn('const u32 kIdleWake = 100;', source)
+        for call in ('set_mode(', 'note_on(', 'render(', 'allocate(', 'file_open(', 'measure_clock(', 'set_priority(',
+                     'sleep_ticks('):
+            self.assertNotIn(call, idle)
 
     def test_waits_count_ticks_and_the_block_counter_is_read_as_a_halfword(self):
         source = (Path(native.ROOT) / 'sdk/platform/opxy-1.2.1/bounce_render.cpp').read_text()

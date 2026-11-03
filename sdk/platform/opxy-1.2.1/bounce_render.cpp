@@ -530,7 +530,9 @@ void renderer(void*) {
 //   5. then       ten takes with a 100-tick timeout of a semaphore no one gives, logged
 //                 before and after                              (002's never-returning sleep)
 // Nothing else: no mode change, note, render, allocation or file.
-const bool kDiagnose = true;
+// Which build: 0 renders (bounce-2a), 1 is bounce-diag-001's bisect below, 2 bounce-diag-002's
+// (idle(), after diagnose()).
+const u32 kDiagnose = 2;
 const u32 kDiagBlocked = 90000, kDiagBelow = 270000, kDiagEqual = 450000, kDiagLogged = 570000;
 const u32 kDiagWake = 100;
 u32 semaphore;   // created at startup, as bounce-2a-002 did; never given
@@ -605,9 +607,49 @@ void diagnose() {
         static_cast<int>(tick_count() - from));
 }
 
+// bounce-diag-002 (drafts/bounce-stems.md §7.8). diag-001 ran clean, but its task first woke
+// 90 s after it started; 001 and 003 stalled with the task waking from boot on, while Max
+// played. This is bounce-2a-003's first 120 s, unchanged up to its loop, kept going for 600 s
+// and never rendering: the same step line and 1,500-tick settle, the same idle line at 1 s and
+// every 10 s after with both clocks (now with the wakes), the same halfword counter reads. Its
+// sleep is 100 ticks (003's was 1000), so it wakes ten times as often as 003 did.
+const u32 kIdleMillis = 600000;
+const u32 kIdleWake = 100;
+
+void idle() {
+    const u32 first = tick_count();
+    const u32 counted = blocks();
+    step(__LINE__, "render: waiting %d ticks before the first take (block counter raw %x, word %x)",
+         static_cast<int>(kStartMillis), raw_blocks(), word(kBlocks));
+    u32 next_line = kIdleLogMillis / 10;
+    Wakes wakes = {0, 0, 0};
+    for (;;) {
+        const u32 waited = tick_count() - first;
+        if (waited >= kIdleMillis) break;
+        if (waited >= next_line) {
+            next_line += kIdleLogMillis;
+            log(__LINE__, "render: idle %d ticks, block counter moved %d (raw %x), cycles %x; %d wakes, %d late, longest %d",
+                static_cast<int>(waited), static_cast<int>(blocks() - counted), raw_blocks(), cycles(),
+                static_cast<int>(wakes.count), static_cast<int>(wakes.late), static_cast<int>(wakes.worst));
+        }
+        const u32 before = tick_count();
+        delay_ticks(kIdleWake);
+        const u32 slept = tick_count() - before;
+        ++wakes.count;
+        if (slept > kIdleWake + 2) ++wakes.late;
+        if (slept > wakes.worst) wakes.worst = slept;
+        blocks();
+    }
+    log(__LINE__, "render: idle done after %d ticks, block counter moved %d; %d wakes, %d late, longest %d; no render",
+        static_cast<int>(tick_count() - first), static_cast<int>(blocks() - counted), static_cast<int>(wakes.count),
+        static_cast<int>(wakes.late), static_cast<int>(wakes.worst));
+}
+
 void task_entry(void* argument) {
-    if (kDiagnose)
+    if (kDiagnose == 1)
         diagnose();
+    else if (kDiagnose == 2)
+        idle();
     else
         renderer(argument);
     // The task has no stock delete to call; it sleeps out the boot.
@@ -620,7 +662,7 @@ void sdk_bounce_render_startup() {
     if (started) return;
     started = 1;
     counter.reset();
-    if (kDiagnose && !(semaphore = create_semaphore())) return;
+    if (kDiagnose == 1 && !(semaphore = create_semaphore())) return;
     if (create_task(&task_handle, task_entry, kPriority, kStack, "bounce_render") != 0)
         log(__LINE__, "render: could not start the bounce_render task");
 }
