@@ -517,8 +517,99 @@ void renderer(void*) {
     storage = nullptr;
 }
 
+// Bisect (bounce-diag-001, OP-XY-Dev drafts/bounce-stems.md §7.8). bounce-2a-001 and 003
+// stopped the DSP's log drain (and later MTP and project loading) a few seconds after the
+// task began waking; 002, whose task never woke again after its first line, did not. One
+// boot runs the suspects in turn, least like 003 first, each long enough (observed stalls
+// came 3-31 s after the task began waking) that the time /logs stops says which one it was
+// (the main board's RTC line arrives once a minute even when the OP-XY is idle):
+//   1. 0-90 s     blocked in one vTaskDelay, no log            (002's case)
+//   2. 90-270 s   priority 2, below main_task: wakes every 100 ticks, reads the clocks, no log
+//   3. 270-450 s  priority 3, main_task's: the same                (001's case)
+//   4. 450-570 s  priority 3, the same and a log line every second (003's case)
+//   5. then       ten takes with a 100-tick timeout of a semaphore no one gives, logged
+//                 before and after                              (002's never-returning sleep)
+// Nothing else: no mode change, note, render, allocation or file.
+const bool kDiagnose = true;
+const u32 kDiagBlocked = 90000, kDiagBelow = 270000, kDiagEqual = 450000, kDiagLogged = 570000;
+const u32 kDiagWake = 100;
+u32 semaphore;   // created at startup, as bounce-2a-002 did; never given
+
+// FreeRTOS 10.0.0's vTaskPrioritySet (asserts tasks.c:1472, priority < 16; NULL is the caller;
+// stock's bridge write calls it so, 8c0c18d0) and vTaskGetInfo (stock 8c0c18c0): the stack's
+// unused words land at +0x20.
+void set_priority(u32 priority) { stock<void(void*, u32)>(0x8c03efc4)(nullptr, priority); }
+u32 stack_unused_words() {
+    u32 status[10];
+    for (u32 i = 0; i < 10; ++i) status[i] = 0;
+    stock<void(void*, u32*, u32, u32)>(0x8c03f94c)(nullptr, status, 1, 0);
+    return status[8] & 0xffff;
+}
+
+struct Wakes {
+    u32 count, late, worst;   // wakes; those over 2 ticks late; the longest sleep, in ticks
+};
+
+// Wakes every kDiagWake ticks until tick `until` from `first`, reading both clocks; logs a
+// line every second only when `logging`.
+void wake_until(u32 first, u32 until, bool logging, Wakes* wakes) {
+    u32 next_line = tick_count() - first;
+    for (;;) {
+        const u32 before = tick_count();
+        const u32 waited = before - first;
+        if (waited >= until) return;
+        if (logging && waited >= next_line) {
+            next_line = waited + 1000;
+            log(__LINE__, "diag 4: %d ticks, %d wakes (%d late, longest %d), block counter %d", static_cast<int>(waited),
+                static_cast<int>(wakes->count), static_cast<int>(wakes->late), static_cast<int>(wakes->worst),
+                static_cast<int>(blocks()));
+        }
+        delay_ticks(kDiagWake);
+        const u32 slept = tick_count() - before;
+        ++wakes->count;
+        if (slept > kDiagWake + 2) ++wakes->late;
+        if (slept > wakes->worst) wakes->worst = slept;
+        blocks();
+    }
+}
+
+void diagnose() {
+    const u32 first = tick_count();
+    const u32 counted = blocks();
+    delay_ticks(kDiagBlocked);   // 1
+    const u32 woke = tick_count() - first;
+    Wakes below = {0, 0, 0}, equal = {0, 0, 0}, logged = {0, 0, 0};
+    set_priority(2);             // 2
+    wake_until(first, kDiagBelow, false, &below);
+    set_priority(kPriority);     // 3
+    wake_until(first, kDiagEqual, false, &equal);
+    // 4: the task's first line, at 450 s.
+    log(__LINE__, "diag 1: woke after %d ticks; diag 2 (priority 2): %d wakes, %d late, longest %d ticks",
+        static_cast<int>(woke), static_cast<int>(below.count), static_cast<int>(below.late), static_cast<int>(below.worst));
+    log(__LINE__, "diag 3 (priority 3): %d wakes, %d late, longest %d ticks; block counter moved %d since the start",
+        static_cast<int>(equal.count), static_cast<int>(equal.late), static_cast<int>(equal.worst),
+        static_cast<int>(blocks() - counted));
+    log(__LINE__, "diag 4: stack %d of %d words never used; FreeRTOS heap %d bytes free, %d at least",
+        static_cast<int>(stack_unused_words()), static_cast<int>(kStack), static_cast<int>(word(0x11800044)),
+        static_cast<int>(word(0x11800048)));
+    wake_until(first, kDiagLogged, true, &logged);
+    // 5
+    log(__LINE__, "diag 5: semaphore takes, before (%d ticks)", static_cast<int>(tick_count() - first));
+    const u32 from = tick_count();
+    u32 returned = 0;
+    for (u32 i = 0; i < 10; ++i) {
+        sleep_ticks(semaphore, kDiagWake);
+        ++returned;
+    }
+    log(__LINE__, "diag 5: %d of 10 semaphore takes returned in %d ticks (1000 expected); done", static_cast<int>(returned),
+        static_cast<int>(tick_count() - from));
+}
+
 void task_entry(void* argument) {
-    renderer(argument);
+    if (kDiagnose)
+        diagnose();
+    else
+        renderer(argument);
     // The task has no stock delete to call; it sleeps out the boot.
     for (;;) delay_ticks(60000);
 }
@@ -529,6 +620,7 @@ void sdk_bounce_render_startup() {
     if (started) return;
     started = 1;
     counter.reset();
+    if (kDiagnose && !(semaphore = create_semaphore())) return;
     if (create_task(&task_handle, task_entry, kPriority, kStack, "bounce_render") != 0)
         log(__LINE__, "render: could not start the bounce_render task");
 }

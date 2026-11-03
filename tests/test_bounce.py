@@ -78,6 +78,8 @@ CALLED = {
     0x8d510760: 0x11a02b3a,  # engine render, from the audio block wrapper
     0x8d50e81c: 0x8d57c9ea,  # note-on, from the benchmark
     0x8d50e964: 0x8d57ca4a,  # note-off, from the benchmark
+    0x8c03efc4: 0x8c0c18d0,  # vTaskPrioritySet(NULL, 8), stock's bridge write (diagnostic build)
+    0x8c03f94c: 0x8c0c18c0,  # vTaskGetInfo(NULL, ...), the same (diagnostic build)
 }
 STOCK = os.environ.get('OPXY_TEST_STOCK_OS')
 
@@ -283,6 +285,19 @@ class RenderStock(unittest.TestCase):
         self.assertEqual(s.immediate(0x8c0ba8f2), (1, 0x8400f280))
         self.assertTrue(s.data[mapped_offset(s.blocks, 0x8400f280, 31):].startswith(b'../src/main/main_thread_bfs.cpp'))
 
+    def test_diagnostic_build_reads_freertos_state(self):
+        s = self.stock
+        # heap_4's malloc keeps its state at 11800040: +4 bytes free, +8 the least ever free.
+        self.assertEqual(s.immediate(0x8c03d60e), (12, 0x11800040))
+        # vTaskPrioritySet asserts the priority below 16 (tasks.c line 1472, 0x5c0).
+        self.assertEqual(s.halves(0x8c03efcc, 1), (0x6085,))  # R5 = 16
+        self.assertEqual(s.halves(0x8c03f0c4, 2), (0xe121, 0x05c0))
+        # vTaskGetInfo stores the stack's unused words as a halfword at +0x20.
+        self.assertEqual(s.call_target(0x8c03f9b8), 0x8c03ed2c)
+        # xTaskCreate takes the stack in words: it allocates depth << 2 (8c03f8d4) from heap_4.
+        self.assertEqual(s.call_target(0x8c03f8da), 0x8c03d600)
+        self.assertEqual(s.call_target(0x8d5bdf8e), 0x8c03f8c4)
+
     def test_only_the_benchmark_command_sets_the_audio_mode(self):
         # The setter's only stock callers are the 0xc8 command handler's, so mode 2 is the render's alone.
         s = self.stock
@@ -324,11 +339,30 @@ class Render(unittest.TestCase):
         block = source[source.index('void render_block() {'):]
         self.assertNotIn('step(', block[:block.index('\n}\n')])
 
+    def test_bisect_runs_its_steps_in_order_and_touches_nothing_else(self):
+        source = (Path(native.ROOT) / 'sdk/platform/opxy-1.2.1/bounce_render.cpp').read_text()
+        self.assertIn('const bool kDiagnose = true;', source)
+        body = source[source.index('void diagnose() {'):]
+        body = body[:body.index('\n}\n')]
+        order = ['delay_ticks(kDiagBlocked);', 'set_priority(2);', 'wake_until(first, kDiagBelow, false',
+                 'set_priority(kPriority);', 'wake_until(first, kDiagEqual, false', 'log(__LINE__, "diag 1:',
+                 'wake_until(first, kDiagLogged, true', 'sleep_ticks(semaphore, kDiagWake);']
+        at = [body.index(step) for step in order]
+        self.assertEqual(at, sorted(at))
+        # No log before step 4; no mode, note, render, allocation or file in the bisect.
+        self.assertNotIn('log(', body[:body.index('// 4:')])
+        for call in ('set_mode(', 'note_on(', 'render(', 'allocate(', 'file_open(', 'make_folder(', 'step('):
+            self.assertNotIn(call, body)
+        wake = source[source.index('void wake_until('):]
+        self.assertIn('if (logging && waited >= next_line)', wake[:wake.index('\n}\n')])
+
     def test_waits_count_ticks_and_the_block_counter_is_read_as_a_halfword(self):
         source = (Path(native.ROOT) / 'sdk/platform/opxy-1.2.1/bounce_render.cpp').read_text()
         # bounce-2a-002 waited on the counter read as a word, with a semaphore sleep.
+        # Only the bisect's step 5 (diagnose) still takes a semaphore, on purpose.
+        render = source[:source.index('// Bisect (bounce-diag-001')]
         for gone in ('wait_blocks(', 'sleep_ticks(', 'create_semaphore(', 'while (blocks()', 'word(kBlocks); }'):
-            self.assertNotIn(gone, source)
+            self.assertNotIn(gone, render)
         self.assertIn('u32 raw_blocks() { return *at<const volatile u16>(kBlocks); }', source)
         self.assertIn('u32 blocks() { return counter.read(raw_blocks()); }', source)
         self.assertIn('void delay_ticks(u32 ticks) { stock<void(u32)>(0x8c040188)(ticks); }', source)
