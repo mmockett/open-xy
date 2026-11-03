@@ -144,6 +144,9 @@
       "sample",
       "player",
       "drum"
+    ],
+    "bounce": [
+      "bounceCapture"
     ]
   },
   "patches": [
@@ -1981,6 +1984,17 @@
       "before": "05301930ffe3f0fe",
       "symbol": "extensions_player_turn",
       "service": "players",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Private bounce capture: the block USB audio takes also feeds the mix capture",
+      "address": "0x8c0c6a3a",
+      "file_offset": "0xfdc76",
+      "length": 8,
+      "before": "00de4d8d144e0000",
+      "symbol": "sdk_bounce_block",
+      "service": "bounce",
       "call": true
     }
   ],
