@@ -49,9 +49,11 @@ i32 make_folder(const char* path) { return stock<i32(const char*, u32)>(0x8c0bd5
 bool rename_file(const char* from, const char* to) { return stock<u32(const char*, const char*)>(0x8c040bd8)(from, to) != 0; }
 // Stock's remove wrapper (8c040c24), as its replace-by-rename calls it first.
 void remove_file(const char* path) { stock<u32(const char*)>(0x8c040c24)(path); }
-// Stock's log, as sport.cpp calls it: level 3 prints an "I" line in /logs.
+// Stock's log, as sport.cpp calls it: level 3 prints an "I" line in /logs. The
+// line's tag is the file name after its last '/', and loses its first character
+// when there is none ("ounce" on bounce-002), so pass a path as stock does.
 template <class... A> void log(u32 line, const char* format, A... args) {
-    stock<void(u32, const char*, u32, const char*, ...)>(0x8c042efc)(3, "bounce.cpp", line, format, args...);
+    stock<void(u32, const char*, u32, const char*, ...)>(0x8c042efc)(3, "sdk/bounce.cpp", line, format, args...);
 }
 // The stock heap, as the benchmark diagnostic takes from it (benchmark.cpp.in).
 void* allocate(u32 bytes) {
@@ -175,11 +177,13 @@ bool begin() {
 }
 
 // Writes what the ring holds, a chunk at a time; returns the frames written.
-u32 drain() {
+// Unless all is set it leaves a part-chunk for later: small writes cost FAT32
+// far more a byte (bounce-002: 80 frames a write took 20% of the take).
+u32 drain(bool all) {
     u32 written = 0;
     for (;;) {
         u32 count = ring.fill();
-        if (!count) return written;
+        if (!count || (!all && count < kChunkFrames)) return written;
         if (count > kChunkFrames) count = kChunkFrames;
         const u32 mask = ring.capacity - 1;
         for (u32 i = 0; i < count; ++i) {
@@ -237,7 +241,7 @@ void burst() {
 void finish() {
     armed = 0;
     barrier();
-    drain();
+    drain(true);
     file_close(take.file);
     wav_header(header, take.frames, 2, kBits);
     // r+b opens at the start without truncating, so the header overwrites the placeholder.
@@ -292,7 +296,7 @@ void writer(void*) {
             }
             continue;
         }
-        drain();
+        drain(stopped != kRunning);
         if (stopped) {
             finish();
             wait_for_stop();  // a take that ended on its bars or a cap waits for stop
