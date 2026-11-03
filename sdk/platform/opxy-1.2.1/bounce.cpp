@@ -1,6 +1,7 @@
 // Bounce phase 1, private test firmware only (OP-XY-Dev drafts/bounce-stems.md):
 // a real-time capture of the mix as USB audio receives it, written to
-// /fat32/samples/bounce/test NNN/mix.wav, one take from each play to stop.
+// /fat32/samples/bounce/test NNN/mix.wav. A take starts at play and ends after
+// kBars bars, or at stop if that comes first (kBars 0: at stop only).
 //
 // The main board's per-block SPORT callback (8c0c69e4) hands USB audio
 // (8d4d4e14) the block the DSP sent, 64 frames of 8 words. The hook replaces
@@ -9,13 +10,15 @@
 // drains the ring to a .tmp file as 16-bit TPDF-dithered stereo, writes the
 // header and renames the file to .wav at stop. Each take ends with a log line
 // of its length, drops, ring high-water, write rate and slot peaks, then a
-// 4 MiB burst write that measures what FAT32 sustains. Main board only:
+// 4 MiB burst write that measures what FAT32 sustains. At most kMaxTakes takes
+// and kMaxBytes a boot, and none after a short write. Main board only:
 // sdk_bounce_startup runs on the GUI role, and the hook does nothing until it has.
 #include "barrier.hpp"
 #include "bounce.hpp"
 #include "stock.hpp"
 
 using opxy::i32;
+using opxy::u16;
 using opxy::u32;
 using opxy::platform::barrier;
 using opxy::platform::byte;
@@ -68,10 +71,19 @@ u32 create_task(u32* handle, void (*entry)(void*), u32 priority, u32 stack, cons
 void usb_audio(const u32* block) { stock<void(const u32*)>(0x8d4d4e14)(block); }
 
 bool playing() { return byte(kPlaying) || byte(kPlaying + 1); }
+u32 ticks() { return opxy::platform::word(opxy::platform::kTicks96); }
+
+// The test's settings, fixed at compile time.
+const u32 kBars = 64;                         // 4/4 bars from play; about 2:08 at 120 bpm. 0: play to stop
+const u32 kBits = 16;                         // 16 (TPDF dither, Max's default) or 24
+const u32 kMaxTakes = 6;                      // takes a boot; then the capture stays off until restart
+const u32 kMaxBytes = 512u << 20;             // audio bytes a boot, across takes
+static_assert(kBits == 16 || kBits == 24, "16- or 24-bit takes only");
+const u32 kFrameBytes = 2 * kBits / 8;
 
 const u32 kRingFrames = 1u << 16;             // 1.49 s at 44.1 kHz, 512 KiB
 const u32 kChunkFrames = 2048;                // 8 KiB of 16-bit stereo a write
-const u32 kMaxFrames = 20u * 60u * kRate;     // a take stops by itself after 20 minutes
+const u32 kMaxFrames = 20u * 60u * kRate;     // a take stops by itself after 20 minutes, whatever kBars says
 const u32 kBurstBytes = 4u << 20;
 const u32 kCyclesPerMicro = 400;              // the main board's core clock (stock's µs clock divides by 400)
 const u32 kPriority = 2;                      // below jack_task (4) and spibridge_io_task (5)
@@ -82,11 +94,16 @@ Ring ring;
 Peaks peaks;
 volatile u32 started;    // 1 once the writer task runs
 volatile u32 armed;      // the hook may push
-volatile u32 stopped;    // the hook saw the transport stop, or the take reached its cap
+volatile u32 stopped;    // the hook saw the transport stop or the last bar, or the take reached a cap
+volatile u32 first;      // the hook has pushed this take's first block
+u32 start_ticks;         // the transport's ticks at that block
+u32 takes;               // takes this boot
+u32 bytes_written;       // audio bytes this boot
+bool full;               // a cap is reached: no more takes until restart
 u32 task_handle;
 u32 semaphore;
 
-short chunk[2 * kChunkFrames];
+unsigned char chunk[kFrameBytes * kChunkFrames];
 unsigned char header[kHeaderBytes];
 char folder[96];
 char temporary[112];
@@ -100,6 +117,7 @@ struct Take {
     u32 worst_write_micros;
     u32 writes;
     Dither dither;
+    bool failed;  // a write came up short (storage full?)
 } take;
 
 u32 micros_since(u32 start) { return (sdk_benchmark_cycles() - start) / kCyclesPerMicro; }
@@ -128,16 +146,19 @@ bool begin() {
         release(storage);
         return false;
     }
-    wav_header(header, 0, 2);
+    wav_header(header, 0, 2, kBits);
     file_write(header, 1, kHeaderBytes, take.file);
     take.frames = take.write_micros = take.worst_write_micros = take.writes = 0;
+    take.failed = false;
+    ++takes;
     take.dither.state = 0x9e3779b9u ^ take.number;
     ring.reset(static_cast<u32*>(storage), kRingFrames);
     peaks.reset();
-    stopped = 0;
+    stopped = first = 0;
     barrier();
     armed = 1;
-    log(__LINE__, "take %d recording to %s", static_cast<int>(take.number), temporary);
+    log(__LINE__, "take %d recording to %s, %d-bit, %d bars", static_cast<int>(take.number), temporary,
+        static_cast<int>(kBits), static_cast<int>(kBars));
     return true;
 }
 
@@ -151,20 +172,32 @@ u32 drain() {
         const u32 mask = ring.capacity - 1;
         for (u32 i = 0; i < count; ++i) {
             const u32* frame = ring.words + 2 * ((ring.tail + i) & mask);
-            chunk[2 * i] = take.dither.sample(frame[0]);
-            chunk[2 * i + 1] = take.dither.sample(frame[1]);
+            unsigned char* out = chunk + kFrameBytes * i;
+            for (u32 c = 0; c < 2; ++c) {
+                if (kBits == 24) {
+                    put24(out + 3 * c, sample24(frame[c]));
+                } else {
+                    put16(out + 2 * c, static_cast<u16>(take.dither.sample(frame[c])));
+                }
+            }
         }
         barrier();
         ring.tail = ring.tail + count;
         const u32 start = sdk_benchmark_cycles();
-        file_write(chunk, 4, count, take.file);
+        const u32 stored = file_write(chunk, kFrameBytes, count, take.file);
         const u32 spent = micros_since(start);
         take.write_micros += spent;
         if (spent > take.worst_write_micros) take.worst_write_micros = spent;
         ++take.writes;
-        take.frames += count;
-        written += count;
-        if (take.frames >= kMaxFrames) stopped = 1;
+        take.frames += stored;
+        written += stored;
+        bytes_written += stored * kFrameBytes;
+        if (stored != count) {
+            take.failed = true;
+            stopped = 1;
+            return written;
+        }
+        if (take.frames >= kMaxFrames || bytes_written >= kMaxBytes) stopped = 1;
     }
 }
 
@@ -192,7 +225,7 @@ void finish() {
     barrier();
     drain();
     file_close(take.file);
-    wav_header(header, take.frames, 2);
+    wav_header(header, take.frames, 2, kBits);
     // r+b opens at the start without truncating, so the header overwrites the placeholder.
     File* file = file_open(temporary, "r+b");
     bool headed = false;
@@ -201,9 +234,10 @@ void finish() {
         file_close(file);
     }
     const bool renamed = rename_file(temporary, final_path);
-    const u32 bytes = take.frames * 4;
-    log(__LINE__, "take %d: %d frames (%d ms), header %d, renamed %d", static_cast<int>(take.number),
-        static_cast<int>(take.frames), static_cast<int>(take.frames / 441 * 10), headed ? 1 : 0, renamed ? 1 : 0);
+    const u32 bytes = take.frames * kFrameBytes;
+    log(__LINE__, "take %d: %d frames (%d ms), header %d, renamed %d, write failed %d", static_cast<int>(take.number),
+        static_cast<int>(take.frames), static_cast<int>(take.frames / 441 * 10), headed ? 1 : 0, renamed ? 1 : 0,
+        take.failed ? 1 : 0);
     log(__LINE__, "take %d: dropped %d blocks, ring high %d of %d frames", static_cast<int>(take.number),
         static_cast<int>(ring.dropped), static_cast<int>(ring.high), static_cast<int>(ring.capacity));
     log(__LINE__, "take %d: %d writes, %d ms writing, worst %d us, %d KiB/s while writing", static_cast<int>(take.number),
@@ -213,14 +247,19 @@ void finish() {
         peaks.slot[2], peaks.slot[3], peaks.slot[4], peaks.slot[5]);
     release(ring.words);
     ring.words = nullptr;
-    burst();
+    if (!take.failed) burst();
+    if (takes >= kMaxTakes || bytes_written >= kMaxBytes || take.failed) {
+        full = true;
+        log(__LINE__, "capture off until restart: %d takes, %d KiB this boot", static_cast<int>(takes),
+            static_cast<int>(bytes_written >> 10));
+    }
 }
 
 void writer(void*) {
     for (;;) {
         sleep_ticks(semaphore, 2);
         if (!armed) {
-            if (playing()) {
+            if (!full && playing()) {
                 if (!begin()) {
                     while (playing()) sleep_ticks(semaphore, 20);  // one attempt per play
                 }
@@ -245,6 +284,13 @@ void sdk_bounce_block(const u32* block) {
         stopped = 1;
         return;
     }
+    if (!first) {
+        start_ticks = ticks();
+        first = 1;
+    } else if (kBars && ticks() - start_ticks >= bar_ticks(kBars)) {
+        stopped = 1;  // the last bar is in: this block starts the next one
+        return;
+    }
     peaks.add(block);
     if (ring.push(block)) {
         barrier();
@@ -261,5 +307,6 @@ void sdk_bounce_startup() {
         return;
     }
     started = 1;
-    log(__LINE__, "bounce capture ready: each play to stop writes samples/bounce/test NNN/mix.wav");
+    log(__LINE__, "bounce capture ready: %d-bit, %d bars from play (or to stop), up to %d takes a boot",
+        static_cast<int>(kBits), static_cast<int>(kBars), static_cast<int>(kMaxTakes));
 }

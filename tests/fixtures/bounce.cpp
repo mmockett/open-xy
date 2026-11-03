@@ -86,15 +86,25 @@ int main() {
         require(m >= 16383 && m <= 16385);
     }
 
+    // 24-bit: rounded, saturating, little-endian.
+    require(sample24(0x7fffffffu) == 0x7fffff && sample24(0x80000000u) == -0x800000);
+    require(sample24(0x00000180u) == 2 && sample24(0x0000017fu) == 1 && sample24(static_cast<u32>(-0x180)) == -1);
+    unsigned char b[3];
+    put24(b, -2);
+    require(b[0] == 0xfe && b[1] == 0xff && b[2] == 0xff);
+
     // The 44-byte header of 16-bit stereo at 44.1 kHz.
     unsigned char h[kHeaderBytes];
-    wav_header(h, 44100, 2);
+    wav_header(h, 44100, 2, 16);
     require(!std::memcmp(h, "RIFF", 4) && !std::memcmp(h + 8, "WAVEfmt ", 8) && !std::memcmp(h + 36, "data", 4));
     const u32 data = h[40] | h[41] << 8 | h[42] << 16 | static_cast<u32>(h[43]) << 24;
     const u32 riff = h[4] | h[5] << 8 | h[6] << 16 | static_cast<u32>(h[7]) << 24;
     require(data == 176400 && riff == 36 + 176400);
     require(h[20] == 1 && h[22] == 2 && h[32] == 4 && h[34] == 16);
     require((h[24] | h[25] << 8 | h[26] << 16) == 44100 && (h[28] | h[29] << 8 | h[30] << 16) == 176400);
+    wav_header(h, 100, 2, 24);
+    require((h[40] | h[41] << 8) == 600 && h[32] == 6 && h[34] == 24 && (h[28] | h[29] << 8 | h[30] << 16) == 264600);
+    require(bar_ticks(64) == 64 * 384 && bar_ticks(0) == 0);
 
     // Take paths: three digits, bounded, nothing past the buffer.
     char path[40];
