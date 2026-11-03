@@ -104,7 +104,21 @@ int main() {
     require((h[24] | h[25] << 8 | h[26] << 16) == 44100 && (h[28] | h[29] << 8 | h[30] << 16) == 176400);
     wav_header(h, 100, 2, 24);
     require((h[40] | h[41] << 8) == 600 && h[32] == 6 && h[34] == 24 && (h[28] | h[29] << 8 | h[30] << 16) == 264600);
-    require(bar_ticks(64) == 64 * 384 && bar_ticks(0) == 0);
+    // 64 bars at 120 bpm are 128 s; no tempo, no limit; slow tempos fit 32 bits.
+    require(bar_frames(64, 1200) == 64 * 88200 && bar_frames(64, 0) == 0);
+    require(bar_frames(500, 200) == 500u * 529200u && bar_frames(1, 1333) == 79399);
+
+    // Ticks: forward steps counted, jumps and resets (a pattern loop) only logged.
+    TickWatch watch;
+    watch.reset();
+    watch.step(1000);
+    watch.step(1001);
+    watch.step(1003);
+    watch.step(1500);  // a jump
+    watch.step(10);    // a loop back
+    watch.step(12);
+    require(watch.counted == 5 && watch.jumps == 1 && watch.backwards == 1 && watch.largest == 497 && watch.last == 12);
+    require(!std::strcmp(reason_name(kBarsDone), "bars done") && !std::strcmp(reason_name(9), "?"));
 
     // Take paths: three digits, bounded, nothing past the buffer.
     char path[40];

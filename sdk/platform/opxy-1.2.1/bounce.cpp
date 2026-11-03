@@ -1,7 +1,9 @@
 // Bounce phase 1, private test firmware only (OP-XY-Dev drafts/bounce-stems.md):
 // a real-time capture of the mix as USB audio receives it, written to
 // /fat32/samples/bounce/test NNN/mix.wav. A take starts at play and ends after
-// kBars bars, or at stop if that comes first (kBars 0: at stop only).
+// kBars bars at the project's tempo when it started, or at stop if that comes
+// first (kBars 0: at stop only). Stop is the play flag clear for kQuietBlocks
+// blocks in a row: on bounce-002 a take ended at every pattern loop of 4 bars.
 //
 // The main board's per-block SPORT callback (8c0c69e4) hands USB audio
 // (8d4d4e14) the block the DSP sent, 64 frames of 8 words. The hook replaces
@@ -72,6 +74,7 @@ void usb_audio(const u32* block) { stock<void(const u32*)>(0x8d4d4e14)(block); }
 
 bool playing() { return byte(kPlaying) || byte(kPlaying + 1); }
 u32 ticks() { return opxy::platform::word(opxy::platform::kTicks96); }
+const u32 kQuietBlocks = 16;                  // 23 ms of a clear play flag is a stop
 
 // The test's settings, fixed at compile time.
 const u32 kBars = 64;                         // 4/4 bars from play; about 2:08 at 120 bpm. 0: play to stop
@@ -94,9 +97,13 @@ Ring ring;
 Peaks peaks;
 volatile u32 started;    // 1 once the writer task runs
 volatile u32 armed;      // the hook may push
-volatile u32 stopped;    // the hook saw the transport stop or the last bar, or the take reached a cap
-volatile u32 first;      // the hook has pushed this take's first block
-u32 start_ticks;         // the transport's ticks at that block
+volatile u32 stopped;    // the take ends: a Reason, set by the hook or the writer
+u32 target_frames;       // frames in kBars bars at the take's tempo; 0: until stop
+u32 tempo_x10;           // that tempo
+u32 quiet;               // blocks in a row with the play flag clear
+u32 flickers;            // runs of a clear play flag shorter than a stop
+u32 start_ticks;         // the tick word at the first block
+TickWatch watch;
 u32 takes;               // takes this boot
 u32 bytes_written;       // audio bytes this boot
 bool full;               // a cap is reached: no more takes until restart
@@ -154,11 +161,16 @@ bool begin() {
     take.dither.state = 0x9e3779b9u ^ take.number;
     ring.reset(static_cast<u32*>(storage), kRingFrames);
     peaks.reset();
-    stopped = first = 0;
+    tempo_x10 = opxy::platform::project_bpm_x10();
+    target_frames = bar_frames(kBars, tempo_x10);
+    quiet = flickers = 0;
+    watch.reset();
+    stopped = kRunning;
     barrier();
     armed = 1;
-    log(__LINE__, "take %d recording to %s, %d-bit, %d bars", static_cast<int>(take.number), temporary,
-        static_cast<int>(kBits), static_cast<int>(kBars));
+    log(__LINE__, "take %d recording to %s, %d-bit, %d bars at %d.%d bpm = %d frames", static_cast<int>(take.number),
+        temporary, static_cast<int>(kBits), static_cast<int>(kBars), static_cast<int>(tempo_x10 / 10),
+        static_cast<int>(tempo_x10 % 10), static_cast<int>(target_frames));
     return true;
 }
 
@@ -194,10 +206,12 @@ u32 drain() {
         bytes_written += stored * kFrameBytes;
         if (stored != count) {
             take.failed = true;
-            stopped = 1;
+            stopped = kWriteShort;
             return written;
         }
-        if (take.frames >= kMaxFrames || bytes_written >= kMaxBytes) stopped = 1;
+        if (stopped) continue;
+        if (take.frames >= kMaxFrames) stopped = kLengthCap;
+        else if (bytes_written >= kMaxBytes) stopped = kBytesCap;
     }
 }
 
@@ -245,6 +259,11 @@ void finish() {
         static_cast<int>(kib_per_second(bytes, take.write_micros / 1000)));
     log(__LINE__, "take %d: slot peaks %x %x %x %x %x %x", static_cast<int>(take.number), peaks.slot[0], peaks.slot[1],
         peaks.slot[2], peaks.slot[3], peaks.slot[4], peaks.slot[5]);
+    log(__LINE__, "take %d: ended by %s; play-flag flickers %d", static_cast<int>(take.number), reason_name(stopped),
+        static_cast<int>(flickers));
+    log(__LINE__, "take %d: ticks %x to %x, %d counted, %d jumps, %d backwards, largest step %d", static_cast<int>(take.number),
+        start_ticks, watch.last, static_cast<int>(watch.counted), static_cast<int>(watch.jumps),
+        static_cast<int>(watch.backwards), static_cast<int>(watch.largest));
     release(ring.words);
     ring.words = nullptr;
     if (!take.failed) burst();
@@ -255,21 +274,28 @@ void finish() {
     }
 }
 
+// Until the transport is stopped: three polls in a row with the play flag clear,
+// so a pattern loop's clear block does not start the next take.
+void wait_for_stop() {
+    for (u32 clear = 0; clear < 3;) {
+        sleep_ticks(semaphore, 5);
+        clear = playing() ? 0 : clear + 1;
+    }
+}
+
 void writer(void*) {
     for (;;) {
         sleep_ticks(semaphore, 2);
         if (!armed) {
             if (!full && playing()) {
-                if (!begin()) {
-                    while (playing()) sleep_ticks(semaphore, 20);  // one attempt per play
-                }
+                if (!begin()) wait_for_stop();  // one attempt per play
             }
             continue;
         }
         drain();
         if (stopped) {
             finish();
-            while (playing()) sleep_ticks(semaphore, 20);  // a take that reached its cap waits for stop
+            wait_for_stop();  // a take that ended on its bars or a cap waits for stop
         }
     }
 }
@@ -280,15 +306,21 @@ void writer(void*) {
 void sdk_bounce_block(const u32* block) {
     usb_audio(block);
     if (!armed || stopped) return;
+    // A clear play flag for a block or two (a pattern loop) is not a stop: keep
+    // the audio, and stop only after kQuietBlocks in a row.
     if (!playing()) {
-        stopped = 1;
-        return;
+        if (++quiet >= kQuietBlocks) {
+            stopped = kStopped;
+            return;
+        }
+    } else if (quiet) {
+        ++flickers;
+        quiet = 0;
     }
-    if (!first) {
-        start_ticks = ticks();
-        first = 1;
-    } else if (kBars && ticks() - start_ticks >= bar_ticks(kBars)) {
-        stopped = 1;  // the last bar is in: this block starts the next one
+    if (!watch.begun) start_ticks = ticks();
+    watch.step(ticks());
+    if (target_frames && ring.head + ring.dropped * kFrames >= target_frames) {
+        stopped = kBarsDone;
         return;
     }
     peaks.add(block);

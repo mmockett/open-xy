@@ -141,8 +141,42 @@ inline bool take_path(char* out, u32 size, const char* prefix, u32 take, const c
 
 // KiB per second from bytes and milliseconds, rounded down; 0 for no time.
 // Whole KiB times 1000 fits 32 bits up to 4 GiB.
-// Ticks of the transport (96 a quarter note) in n bars of 4/4.
-inline u32 bar_ticks(u32 bars) { return bars * 4 * 96; }
+// Frames in n bars of 4/4 at a tempo in tenths of a BPM; 0 for no tempo. A bar
+// is 4 * 60 * 10 / bpm_x10 seconds, so 105,840,000 / bpm_x10 frames, rounded
+// down (under a frame a bar). 500 bars at 20 bpm stay inside 32 bits.
+inline u32 bar_frames(u32 bars, u32 bpm_x10) { return bpm_x10 ? bars * (4u * 60u * 10u * kRate / bpm_x10) : 0; }
+
+// What the transport's tick word does during a take, for the log only: the
+// forward steps it took, how many steps jumped (more than kStep a block) and
+// how many went backwards (a reset or a loop), and the largest forward step.
+struct TickWatch {
+    static const u32 kStep = 64;
+    u32 last, counted, jumps, backwards, largest;
+    bool begun;
+    void reset() { last = counted = jumps = backwards = largest = 0; begun = false; }
+    void step(u32 ticks) {
+        if (!begun) {
+            begun = true;
+            last = ticks;
+            return;
+        }
+        const u32 d = ticks - last;
+        last = ticks;
+        if (d >= 0x80000000u) {
+            ++backwards;
+            return;
+        }
+        if (d > largest) largest = d;
+        if (d <= kStep) counted += d; else ++jumps;
+    }
+};
+
+// Why a take ended.
+enum Reason { kRunning = 0, kStopped, kBarsDone, kLengthCap, kBytesCap, kWriteShort };
+inline const char* reason_name(u32 reason) {
+    const char* names[] = {"running", "transport stop", "bars done", "20-minute cap", "boot byte cap", "short write"};
+    return reason < 6 ? names[reason] : "?";
+}
 
 inline u32 kib_per_second(u32 bytes, u32 millis) { return millis ? (bytes >> 10) * 1000u / millis : 0; }
 }}
