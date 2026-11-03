@@ -223,7 +223,7 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'track_control_table', 'track_control_hooks', 'track_control_project',
              'synth_pages', 'aux_tracks', 'aux_hooks', 'presets',
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
-             'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks', 'bounce')
+             'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks', 'bounce', 'bounce_render')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -244,6 +244,8 @@ UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
 # Private bounce capture (OP-XY-Dev drafts/bounce-stems.md phase 1): linked only when
 # OPXY_BOUNCE_CAPTURE=1 asks for it, never in a release build.
 UNIT_SERVICES['bounce'] = 'bounce'
+# Private offline render on the DSP (phase 2a, §7): linked only when OPXY_BOUNCE_RENDER=1.
+UNIT_SERVICES['bounce_render'] = 'bounce_render'
 
 
 def service_users(machines):
@@ -254,7 +256,8 @@ def service_users(machines):
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
-            (['bounceCapture'] if os.environ.get('OPXY_BOUNCE_CAPTURE') == '1' else []))
+            (['bounceCapture'] if os.environ.get('OPXY_BOUNCE_CAPTURE') == '1' else []) +
+            (['bounceRender'] if os.environ.get('OPXY_BOUNCE_RENDER') == '1' else []))
 
 
 def module_bytes(profile):
@@ -475,7 +478,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                 effect_screens=[x.prefix for x in effects if x.display != 'stock'],
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
                                                 control='control' in services, aux='aux' in services,
-                                                bounce='bounce' in services)), obj)
+                                                bounce='bounce' in services,
+                                                bounce_render='bounce_render' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)

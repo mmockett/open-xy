@@ -17,6 +17,7 @@
 // sdk_bounce_startup runs on the GUI role, and the hook does nothing until it has.
 #include "barrier.hpp"
 #include "bounce.hpp"
+#include "bounce_stock.hpp"
 #include "stock.hpp"
 
 using opxy::i32;
@@ -35,43 +36,7 @@ u32 sdk_benchmark_cycles() __asm__("sdk_benchmark_cycles");
 }
 
 namespace {
-typedef void File;
-// newlib as stock's project files call it (project_files.hpp).
-File* file_open(const char* path, const char* mode) { return stock<File*(const char*, const char*)>(0x8fed0348)(path, mode); }
-u32 file_write(const void* data, u32 size, u32 count, File* file) {
-    return stock<u32(const void*, u32, u32, File*)>(0x8fed0780)(data, size, count, file);
-}
-void file_close(File* file) { stock<int(File*)>(0x8fed00ae)(file); }
-// mkdir(path, mode) as stock's folder setup calls it (8c0409f0): -1 when it fails,
-// which includes a folder that already exists.
-i32 make_folder(const char* path) { return stock<i32(const char*, u32)>(0x8c0bd5bc)(path, 0); }
-// Stock's rename wrapper (8c040bd8): 1 when it moved the file.
-bool rename_file(const char* from, const char* to) { return stock<u32(const char*, const char*)>(0x8c040bd8)(from, to) != 0; }
-// Stock's remove wrapper (8c040c24), as its replace-by-rename calls it first.
-void remove_file(const char* path) { stock<u32(const char*)>(0x8c040c24)(path); }
-// Stock's log, as sport.cpp calls it: level 3 prints an "I" line in /logs. The
-// line's tag is the file name after its last '/', and loses its first character
-// when there is none ("ounce" on bounce-002), so pass a path as stock does.
-template <class... A> void log(u32 line, const char* format, A... args) {
-    stock<void(u32, const char*, u32, const char*, ...)>(0x8c042efc)(3, "sdk/bounce.cpp", line, format, args...);
-}
-// The stock heap, as the benchmark diagnostic takes from it (benchmark.cpp.in).
-void* allocate(u32 bytes) {
-    const u32 heap = 0x08036aa4;
-    stock<void(u32, i32)>(0x8c03e6f4)(opxy::platform::word(heap), -1);
-    void* block = stock<void*(u32, u32)>(0x8c048788)(opxy::platform::word(heap + 4), bytes);
-    stock<void(u32, u32, u32, u32)>(0x8c03e9c8)(opxy::platform::word(heap), 0, 0, 0);
-    return block;
-}
-void release(void* block) { stock<void(void*)>(0x8d4d2910)(block); }
-// A binary semaphore no one gives: taking it with a timeout is the task's sleep.
-u32 create_semaphore() { return stock<u32(u32, u32, u32)>(0x8c03de70)(1, 0, 3); }
-void sleep_ticks(u32 semaphore, u32 ticks) { stock<u32(u32, u32)>(0x8c03e6f4)(semaphore, ticks); }
-// Stock's task creation, as spibridge_io_task is created (8c0c0cb8); 0 on success.
-u32 create_task(u32* handle, void (*entry)(void*), u32 priority, u32 stack, const char* name) {
-    return stock<u32(u32*, void (*)(void*), void*, u32, u32, u32, const char*, u32)>(0x8d5bdf44)(
-        handle, entry, nullptr, priority, 0, stack, name, 1);
-}
+template <class... A> void log(u32 line, const char* format, A... args) { log_from("sdk/bounce.cpp", line, format, args...); }
 void usb_audio(const u32* block) { stock<void(const u32*)>(0x8d4d4e14)(block); }
 
 bool playing() { return byte(kPlaying) || byte(kPlaying + 1); }

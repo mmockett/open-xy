@@ -1,10 +1,14 @@
-// Bounce phase 1, private: the parts of the real-time mix capture that need no
-// stock call, so the host can test them (tests/fixtures/bounce.cpp). The device
-// side, its hook and writer task, is bounce.cpp.
+// Bounce, private: the parts of the real-time mix capture (phase 1, bounce.cpp)
+// and the DSP's offline render (phase 2a, bounce_render.cpp) that need no stock
+// call, so the host can test them (tests/fixtures/bounce.cpp). Their stock calls
+// are in bounce_stock.hpp.
 #pragma once
 #include <opxy/types.hpp>
 
 namespace opxy { namespace bounce {
+// File-local in each unit that includes it: the capture and the render may link
+// together, and staging has no COMDAT groups to merge an inline left out of line.
+namespace {
 
 // The block the main board hands USB audio: 64 frames of 8 words. Slots 0..5
 // carry audio; 6 and 7 carry the DSP's message words (stock 8c0c69e4).
@@ -179,4 +183,99 @@ inline const char* reason_name(u32 reason) {
 }
 
 inline u32 kib_per_second(u32 bytes, u32 millis) { return millis ? (bytes >> 10) * 1000u / millis : 0; }
+
+// ---- Phase 2a: the DSP's offline render (bounce_render.cpp) ----
+
+// One engine block: 64 frames of left and right Q31 words, interleaved, as the
+// audio block wrapper reads its output (11a02b4e).
+const u32 kBlockWords = 2 * kFrames;
+
+// Blocks covering a time in milliseconds, rounded up: ms * 44,100 / 1,000 / 64
+// = ms * 441 / 640. Exact in 32 bits up to about 2.7 hours.
+inline u32 blocks_for_millis(u32 millis) { return (millis * 441u + 639u) / 640u; }
+
+// The first address at or after p that is a multiple of to (a power of two).
+inline unsigned char* align_up(unsigned char* p, u32 to) {
+    typedef __UINTPTR_TYPE__ Address;
+    const Address a = reinterpret_cast<Address>(p);
+    return reinterpret_cast<unsigned char*>((a + (to - 1)) & ~static_cast<Address>(to - 1));
+}
+
+// The file as it goes out: whole 64 KiB chunks from one 32-byte-aligned buffer,
+// the WAV header first. Every write but the last is then a whole chunk at a
+// chunk-aligned file offset, which FAT32 takes in whole sectors straight from the
+// buffer (fat_diskio needs 32-byte alignment to skip its bounce copy). The header
+// (44 bytes) and a 16-bit stereo frame (4) both divide the chunk, so a frame never
+// straddles two chunks.
+const u32 kChunkBytes = 64u << 10;
+const u32 kChunkAlign = 32;
+struct Chunk {
+    unsigned char* base;
+    u32 used;     // bytes in the buffer now
+    u32 written;  // bytes handed out in whole or final chunks so far
+    void reset(unsigned char* buffer) { base = buffer; used = written = 0; }
+    bool full() const { return used == kChunkBytes; }
+    // The header's place, zeroed, at the start of the file.
+    void begin() {
+        for (u32 i = 0; i < kHeaderBytes; ++i) base[i] = 0;
+        used = kHeaderBytes;
+    }
+    // One frame; the caller writes a full chunk out first.
+    void frame16(short left, short right) {
+        unsigned char* p = base + used;
+        put16(p, static_cast<u16>(left));
+        put16(p + 2, static_cast<u16>(right));
+        used += 4;
+    }
+    // After the caller wrote used bytes out.
+    void drained() { written += used; used = 0; }
+    // Frames in the file so far, written or buffered.
+    u32 frames() const { return (written + used - kHeaderBytes) / 4; }
+};
+
+// Peak and energy of one channel over a take. The energy is the sum of the
+// squares of the top 16 bits, kept as two words (no 64-bit runtime on the
+// device); the log reader turns it into RMS dBFS.
+struct Level {
+    u32 peak;      // largest magnitude, Q31
+    u32 low, high; // sum of squares of (word >> 16)
+    void reset() { peak = low = high = 0; }
+    void add(u32 word) {
+        const i32 v = static_cast<i32>(word);
+        const u32 m = v < 0 ? (v == static_cast<i32>(0x80000000u) ? 0x7fffffffu : static_cast<u32>(-v)) : static_cast<u32>(v);
+        if (m > peak) peak = m;
+        const i32 top = v >> 16;
+        const u32 square = static_cast<u32>(top * top);  // at most 2^30
+        const u32 sum = low + square;
+        if (sum < low) ++high;
+        low = sum;
+    }
+};
+
+// FNV-1a over the engine's words, so two takes of the same seeds can be compared
+// from the log alone.
+struct Hash {
+    u32 value;
+    void reset() { value = 2166136261u; }
+    void add(u32 word) {
+        for (u32 i = 0; i < 4; ++i) {
+            value ^= (word >> (8 * i)) & 0xff;
+            value *= 16777619u;
+        }
+    }
+};
+
+// Cycles in a microsecond and a millisecond, from cycles in a block measured
+// against the SPORT's block counter (a block is 64 / 44,100 s = 1,451.25 us).
+// Fits 32 bits up to 9.7 million cycles a block.
+inline u32 cycles_per_milli(u32 per_block) { return per_block * 441u / 640u; }
+inline u32 cycles_per_micro(u32 per_block) { return cycles_per_milli(per_block) / 1000u; }
+// Percent of a block that `units` of 256 cycles over `blocks` blocks took.
+inline u32 block_percent(u32 units, u32 blocks, u32 per_block) {
+    if (!blocks || per_block < 256) return 0;
+    return units / blocks * 100u / (per_block >> 8);
+}
+// Real-time factor times 100: rendered blocks over the blocks the SPORT counted meanwhile.
+inline u32 speed_x100(u32 rendered, u32 elapsed) { return elapsed ? rendered * 100u / elapsed : 0; }
+}
 }}

@@ -1,5 +1,6 @@
-// The bounce capture's ring, peaks, dither, WAV header and take paths, with no
-// stock call (bounce.hpp).
+// The bounce capture's ring, peaks, dither, WAV header and take paths, and the
+// DSP render's chunk packing, alignment, levels, hash and frame arithmetic, with
+// no stock call (bounce.hpp).
 #include "bounce.hpp"
 #include <cstdio>
 #include <cstdlib>
@@ -15,6 +16,111 @@ static u32 block[kFrames * kSlots];
 static void fill_block(u32 base) {
     for (u32 i = 0; i < kFrames; ++i)
         for (u32 s = 0; s < kSlots; ++s) block[kSlots * i + s] = base + 16 * i + s;
+}
+
+static u32 le32(const unsigned char* p) { return p[0] | p[1] << 8 | p[2] << 16 | static_cast<u32>(p[3]) << 24; }
+
+// Phase 2a: the DSP render's pure parts.
+static void render_checks() {
+    // Blocks for the take: 20 s held, 5 s tail; rounded up to whole blocks.
+    require(blocks_for_millis(20000) == 13782 && blocks_for_millis(5000) == 3446);
+    require(blocks_for_millis(0) == 0 && blocks_for_millis(1) == 1 && blocks_for_millis(1000) == 690);
+    require(blocks_for_millis(120000) == 82688);
+    const u32 frames = (13782 + 3446) * kFrames;
+    require(frames == 1102592);
+    // No overflow at the longest a take could be asked for (two hours).
+    require(blocks_for_millis(7200000u) == 4961250);
+
+    // A 32-byte-aligned chunk inside a slightly larger allocation, for any start.
+    static unsigned char raw[kChunkBytes + 2 * kChunkAlign];
+    for (u32 skew = 0; skew < kChunkAlign; ++skew) {
+        unsigned char* p = align_up(raw + skew, kChunkAlign);
+        typedef __UINTPTR_TYPE__ Address;
+        require(reinterpret_cast<Address>(p) % kChunkAlign == 0);
+        require(p >= raw + skew && p < raw + skew + kChunkAlign);
+        require(p + kChunkBytes <= raw + sizeof raw);
+    }
+    unsigned char* aligned = align_up(raw, kChunkAlign);
+    require(align_up(aligned, kChunkAlign) == aligned);
+
+    // The file through the chunk: header first, every write but the last a whole
+    // chunk; frames never straddle, and the byte count matches the header.
+    static unsigned char file[600000];
+    u32 size = 0, writes = 0, whole = 0;
+    Chunk chunk;
+    chunk.reset(aligned);
+    chunk.begin();
+    require(chunk.used == kHeaderBytes && chunk.frames() == 0);
+    Dither dither;
+    dither.state = 0x9e3779b9u;
+    Dither check = dither;
+    const u32 count = 140000;  // over two chunks
+    for (u32 i = 0; i < count; ++i) {
+        if (chunk.full()) {
+            std::memcpy(file + size, chunk.base, chunk.used);
+            size += chunk.used;
+            ++writes;
+            ++whole;
+            chunk.drained();
+        }
+        require(chunk.used + 4 <= kChunkBytes);
+        const u32 l = static_cast<u32>(i * 40503u) << 8, r = ~l;
+        chunk.frame16(dither.sample(l), dither.sample(r));
+    }
+    require(chunk.frames() == count);
+    require(whole == (kHeaderBytes + 4 * count) / kChunkBytes);
+    std::memcpy(file + size, chunk.base, chunk.used);
+    size += chunk.used;
+    ++writes;
+    chunk.drained();
+    require(size == kHeaderBytes + 4 * count && chunk.frames() == count && chunk.written == size && writes == whole + 1);
+    // The first chunk holds (65,536 - 44) / 4 = 16,373 frames exactly.
+    require((kChunkBytes - kHeaderBytes) % 4 == 0 && (kChunkBytes - kHeaderBytes) / 4 == 16373);
+    // The samples come out in order, as the dither made them.
+    for (u32 i = 0; i < count; ++i) {
+        const u32 l = static_cast<u32>(i * 40503u) << 8, r = ~l;
+        const short el = check.sample(l), er = check.sample(r);
+        const unsigned char* p = file + kHeaderBytes + 4 * i;
+        require(static_cast<short>(p[0] | p[1] << 8) == el && static_cast<short>(p[2] | p[3] << 8) == er);
+    }
+    // The header patch: 44 bytes over the zeroed placeholder.
+    for (u32 i = 0; i < kHeaderBytes; ++i) require(file[i] == 0);
+    wav_header(file, chunk.frames(), 2, 16);
+    require(le32(file + 40) == 4 * count && le32(file + 4) == size - 8);
+
+    // Levels: peak magnitude in Q31; the energy of the top 16 bits as two words.
+    Level level;
+    level.reset();
+    level.add(0x40000000u);
+    level.add(static_cast<u32>(-0x20000000));
+    require(level.peak == 0x40000000u && level.high == 0 && level.low == 0x10000000u + 0x4000000u);
+    level.add(0x80000000u);
+    require(level.peak == 0x7fffffffu && level.low == 0x10000000u + 0x4000000u + 0x40000000u);
+    // A carry into the high word: full scale for 8 frames is 8 * 2^30 = 2^33.
+    level.reset();
+    for (u32 i = 0; i < 8; ++i) level.add(0x80000000u);
+    require(level.high == 2 && level.low == 0);
+    for (u32 i = 0; i < 4; ++i) level.add(0x80000000u);
+    require(level.high == 3 && level.low == 0);
+
+    // FNV-1a over the words' little-endian bytes.
+    Hash hash;
+    hash.reset();
+    hash.add(0);
+    require(hash.value == 0x4b95f515u);
+    hash.reset();
+    hash.add(0x12345678u);
+    hash.add(0xdeadbeefu);
+    require(hash.value == 0x2ca9bf8bu);
+
+    // Clock arithmetic: 400 MHz is 580,500 cycles a block.
+    require(cycles_per_milli(580500) == 400000 && cycles_per_micro(580500) == 400);
+    require(cycles_per_milli(1451000) < 0xffffffffu / 441u * 640u);
+    // 25% of a block over 100 blocks, in 256-cycle units.
+    require(block_percent(100 * (580500 / 4 / 256), 100, 580500) == 24 ||
+            block_percent(100 * (580500 / 4 / 256), 100, 580500) == 25);
+    require(block_percent(5, 0, 580500) == 0 && block_percent(5, 1, 0) == 0);
+    require(speed_x100(17228, 5743) == 299 && speed_x100(1, 0) == 0);
 }
 
 int main() {
@@ -131,5 +237,6 @@ int main() {
 
     require(kib_per_second(1 << 20, 1000) == 1024 && kib_per_second(5, 0) == 0);
     require(kib_per_second(0xffffffffu, 1000) == 4194303);
+    render_checks();
     return 0;
 }

@@ -42,6 +42,7 @@ void sdk_startup_synth() {
 @EFFECTS@
     if (stock_gui_role()) return;
 @ENGINES@
+@AUDIO_SERVICES@
 }
 
 // On the GUI role an engine with its own page registers only after its screen

@@ -99,9 +99,9 @@ class Services(unittest.TestCase):
         steps = lambda selection: [step for _name, m, step in native.plan(selection)
                                    if m is None and not step.startswith('extension:')]
         # The fixtures declare no track control, hidden pages, aux tracks or players: those services stay off,
-        # as does the private bounce capture without OPXY_BOUNCE_CAPTURE=1.
+        # as do the private bounce capture and render without OPXY_BOUNCE_CAPTURE=1 or OPXY_BOUNCE_RENDER=1.
         self.assertEqual(steps(machines), [u for u in native.SDK_UNITS
-                                          if native.UNIT_SERVICES.get(u) not in ('control', 'aux', 'players', 'bounce')])
+                                          if native.UNIT_SERVICES.get(u) not in ('control', 'aux', 'players', 'bounce', 'bounce_render')])
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
         self.assertEqual(set(native.object_services(machines).values()), {'samples', 'octaves', 'drums', 'extensions'})

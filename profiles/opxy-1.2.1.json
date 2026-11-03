@@ -147,6 +147,9 @@
     ],
     "bounce": [
       "bounceCapture"
+    ],
+    "bounce_render": [
+      "bounceRender"
     ]
   },
   "patches": [

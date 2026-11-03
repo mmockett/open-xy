@@ -14,7 +14,7 @@ def _declare(name, signature='()'):
 
 
 def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-           control=False, aux=False, bounce=False):
+           control=False, aux=False, bounce=False, bounce_render=False):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     sample_screens: those of them that also draw their own screen over it.
@@ -24,7 +24,9 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     calls into the service do nothing.
     aux: the build links the aux service (aux tracks), which starts after it.
     bounce: the build links the private bounce capture, whose writer task starts
-    last on the GUI role."""
+    last on the GUI role.
+    bounce_render: the build links the private DSP render, whose task starts after
+    the engines on the audio role."""
     require(prefixes or effects or player_pages, 'Startup needs at least one machine')
     require(0 <= len(prefixes) <= ENGINE_COUNT and len(set(prefixes)) == len(prefixes),
             'Startup needs distinct engine prefixes')
@@ -79,12 +81,17 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     if bounce:
         declarations.append('void sdk_bounce_startup() __asm__("sdk_bounce_startup");')
         screens.append('    sdk_bounce_startup();')
+    audio = []
+    if bounce_render:
+        declarations.append('void sdk_bounce_render_startup() __asm__("sdk_bounce_render_startup");')
+        audio.append('    sdk_bounce_render_startup();')
     owned += [f'    if (page == value({prefix}_fx_page_id)) return {prefix}_ready() == 1;' for prefix in effect_screens]
     sample = [f'    if (engine == value({prefix}_engine_id)) return {prefix}_ready() == 1 && {prefix}_screen_ready() == 1 ? value({prefix}_screen_page_id) : 0;'
               for prefix in sample_screens]
     values = dict(DECLARATIONS='\n'.join(declarations), OWNED_SCREENS='\n'.join(owned), SAMPLE_SCREENS='\n'.join(sample),
                   EFFECTS='\n'.join(f'    {prefix}_fx_register();' for prefix in effects),
                   ENGINES='\n'.join(f'    {prefix}_register();' for prefix in prefixes),
+                  AUDIO_SERVICES='\n'.join(audio),
                   SCREENS='\n'.join(screens), CATALOG='\n'.join(catalog), ENGINE_SENTINEL=str(ENGINE_SENTINEL),
                   PROJECT_KEPT=kept,
                   INSTALLED='\n'.join(f'    if ({prefix}_name_matches(name)) return 1;' for prefix in prefixes))
@@ -97,8 +104,8 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
 
 
 def generate(directory, prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-             control=False, aux=False, bounce=False):
+             control=False, aux=False, bounce=False, bounce_render=False):
     destination = Path(directory) / 'startup.cpp'
     destination.write_text(render(prefixes, effects, stock_page, sample_screens, effect_screens, player_pages,
-                                  control, aux, bounce), encoding='utf-8', newline='\n')
+                                  control, aux, bounce, bounce_render), encoding='utf-8', newline='\n')
     return destination
