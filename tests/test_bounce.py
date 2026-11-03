@@ -73,6 +73,7 @@ CALLED = {
     0x8c03ee34: 0x8c03d234,  # vTaskSuspendAll, paired with the next in heap_4's malloc
     0x8c03f284: 0x8c03d244,  # xTaskResumeAll
     0x8c03ee20: 0x8c04060e,  # xTaskGetTickCount
+    0x8c040188: 0x8c0ba506,  # vTaskDelay, a tick each pass of the DSP's main_task loop
     0x8d4ff0a8: 0x8d5aec36,  # set audio mode, from the 0xc8 command handler
     0x8d510760: 0x11a02b3a,  # engine render, from the audio block wrapper
     0x8d50e81c: 0x8d57c9ea,  # note-on, from the benchmark
@@ -103,6 +104,44 @@ class Stock:
         if w[0] >> 9 != 0x6c or w[3] & 0xf0ff:
             return None
         return bool(w[3] & 0x200), w[1] << 16 | w[2]
+
+    def code(self):
+        """(address, half-words) of each stored block of code: L1 and the 8c-8f image."""
+        import numpy as np
+        for b in self.blocks:
+            if b['fill'] or b['target'] & 1 or not (0x11a00000 <= b['target'] < 0x11b00000 or
+                                                     0x8c000000 <= b['target'] < 0x90000000):
+                continue
+            yield b['target'], np.frombuffer(self.data, '<u2', b['stored'] // 2, b['offset'] + 16)
+
+    def absolute_sites(self, address):
+        """Sites of every 64-bit absolute load or store of address."""
+        import numpy as np
+        sites = []
+        for base, w in self.code():
+            hit = ((w[:-3] & 0xfe00) == 0xd800) & (w[1:-2] == address >> 16) & (w[2:-1] == address & 0xffff)
+            sites += [base + 2 * int(i) for i in np.flatnonzero(hit & ((w[3:] & 0xf0ff) == 0))]
+        return sites
+
+    def absolute_calls(self, function):
+        """Sites of every absolute CALL to function."""
+        import numpy as np
+        sites = []
+        for base, w in self.code():
+            hit = (w[:-3] == 0xde00) & (w[1:-2] == function >> 16) & (w[2:-1] == function & 0xffff) & (w[3:] == 0)
+            sites += [base + 2 * int(i) for i in np.flatnonzero(hit)]
+        return sites
+
+    def absolute_alignments(self):
+        """{width bits: {address % 4: count}} of R0's absolute loads and stores of 08, 11 and 84 addresses."""
+        import numpy as np
+        out = {}
+        for _base, w in self.code():
+            hit = (w[:-3] == 0xd800) & ((w[3:] & 0xf0ff) == 0) & np.isin(w[1:-2] >> 8, (0x08, 0x11, 0x84))
+            for i in np.flatnonzero(hit):
+                counts = out.setdefault(int(w[i + 3]) & 0x0f00, {})
+                counts[int(w[i + 2]) & 3] = counts.get(int(w[i + 2]) & 3, 0) + 1
+        return out
 
     def immediate(self, site):
         """(register, value) of a 32-bit immediate load."""
@@ -153,6 +192,59 @@ class RenderStock(unittest.TestCase):
         self.assertEqual(s.immediate(0x11a02b32), (0, 0x84c696fc))
         # Setting the mode only stores the word.
         self.assertEqual(s.absolute(0x8d4ff0ac), (True, 0x842e2a00))
+
+    def test_block_counter_is_a_halfword_every_live_block_counts(self):
+        # What bounce-2a-003's clocks rely on (bounce_render.cpp, "Clocks").
+        s = self.stock
+        # The wrapper loads the counter 16 bits wide (0x0c00), adds one, stores 16 bits (0x0600).
+        self.assertEqual(s.halves(0x11a02888, 4), (0xd800, 0x84a5, 0x0b98, 0x0c00))
+        self.assertEqual(s.halves(0x11a02890, 1), (0x6408,))  # R0 += 1
+        self.assertEqual(s.halves(0x11a02892, 4), (0xd800, 0x84a5, 0x0b98, 0x0600))
+        # Those width bits, over every absolute access in stock's code: words only at
+        # multiples of 4, halfwords (0x0400, 0x0600, 0x0c00) never at an odd address,
+        # bytes (0x0a00) at odd ones too.
+        by_width = s.absolute_alignments()
+        self.assertEqual(set(by_width[0x0000]), {0})
+        for width in (0x0400, 0x0600, 0x0c00):
+            self.assertEqual(set(by_width[width]), {0, 2}, hex(width))
+        self.assertTrue({1, 3} <= set(by_width[0x0a00]))
+        # Nothing else in stock names the counter or its upper half.
+        self.assertEqual(s.absolute_sites(0x84a50b98), [0x11a02888, 0x11a02892])
+        self.assertEqual(s.absolute_sites(0x84a50b9a), [])
+        # The count comes before the mode-2 test (842e2a24 - 0x24), so it runs in every mode.
+        self.assertEqual(s.immediate(0x11a0289a), (13, 0x842e2a24))
+        self.assertEqual(s.halves(0x11a028a6, 1), (0x0c10,))  # CC = R0 == 2
+        # On the DSP (stock_gui_role 0) the SPORT callback is 8c0c6f8c (8c0c69e4 on the main board).
+        self.assertEqual(s.call_target(0x8c0c6cbc), 0x8d5c3eac)
+        self.assertEqual(s.immediate(0x8c0c6cc6), (1, 0x8c0c69e4))
+        self.assertEqual(s.immediate(0x8c0c6cce), (0, 0x8c0c6f8c))
+        # It reads the mode and calls the wrapper unless the mode is 1.
+        self.assertEqual(s.absolute(0x8c0c6fe0), (False, 0x842e2a00))
+        self.assertEqual(s.halves(0x8c0c6fe8, 1), (0x0c08,))  # CC = R0 == 1
+        self.assertEqual(s.call_target(0x8c0c6ffe), 0x11a02864)
+        # The wrapper has no other absolute caller, and the engine render none but the
+        # wrapper (the benchmark's are relative, in CALLED): every live block is counted.
+        self.assertEqual(s.absolute_calls(0x11a02864), [0x8c0c6ffe])
+        self.assertEqual(s.absolute_calls(0x8d510760), [0x11a02b3a])
+
+    def test_render_sleeps_with_vtaskdelay_as_the_dsp_main_task_does(self):
+        s = self.stock
+        # main_task (priority 3) runs the DSP's loop 8c0ba32c when stock_gui_role is 0.
+        self.assertEqual(s.call_target(0x8c0b6722), 0x8d5c3eac)
+        self.assertEqual(s.call_target(0x8c0b673e), 0x8c0ba32c)
+        self.assertEqual(s.immediate(0x8c0b6818), (1, 0x8c0b66e8))
+        self.assertEqual(s.halves(0x8c0b6806, 1), (0x6819,))  # P1 = 3, the priority
+        self.assertTrue(s.data[mapped_offset(s.blocks, 0x8400e978, 10):].startswith(b'main_task\0'))
+        self.assertEqual(s.call_target(0x8c0b6828), 0x8d5bdf44)
+        # vTaskDelay(1) each pass.
+        self.assertEqual(s.halves(0x8c0ba504, 1), (0x6008,))  # R0 = 1
+        # FreeRTOS's vTaskDelay: asserts the scheduler isn't suspended, then suspends it,
+        # adds the task to the delayed list, resumes, and yields (RAISE 14) unless that did.
+        self.assertEqual(s.absolute(0x8c0401a8), (False, 0x11800030))
+        self.assertEqual(s.call_target(0x8c0401b4), 0x8c03ee34)
+        self.assertEqual(s.call_target(0x8c0401bc), 0x8c0400ac)
+        self.assertEqual(s.call_target(0x8c0401c0), 0x8c03f284)
+        self.assertEqual(s.halves(0x8c04019e, 1), (0x009e,))
 
     def test_note_on_and_random_generator(self):
         s = self.stock
@@ -226,8 +318,40 @@ class Render(unittest.TestCase):
         # Every step line waits for the drain; none is logged with the scheduler suspended.
         body = source[source.index('template <class... A> void step('):]
         self.assertIn('settle();', body[:body.index('\n}\n')])
+        # The pause is ticks, so it lasts in mode 0 whether or not the block counter moves.
+        body = source[source.index('void settle() {'):]
+        self.assertIn('delay_ticks(kSettleMillis);', body[:body.index('\n}\n')])
         block = source[source.index('void render_block() {'):]
         self.assertNotIn('step(', block[:block.index('\n}\n')])
+
+    def test_waits_count_ticks_and_the_block_counter_is_read_as_a_halfword(self):
+        source = (Path(native.ROOT) / 'sdk/platform/opxy-1.2.1/bounce_render.cpp').read_text()
+        # bounce-2a-002 waited on the counter read as a word, with a semaphore sleep.
+        for gone in ('wait_blocks(', 'sleep_ticks(', 'create_semaphore(', 'while (blocks()', 'word(kBlocks); }'):
+            self.assertNotIn(gone, source)
+        self.assertIn('u32 raw_blocks() { return *at<const volatile u16>(kBlocks); }', source)
+        self.assertIn('u32 blocks() { return counter.read(raw_blocks()); }', source)
+        self.assertIn('void delay_ticks(u32 ticks) { stock<void(u32)>(0x8c040188)(ticks); }', source)
+        renderer = source[source.index('void renderer(void*) {'):]
+        renderer = renderer[:renderer.index('\n}\n')]
+        # The idle window and the gap count ticks; the window logs both clocks.
+        self.assertIn('const u32 waited = tick_count() - first;', renderer)
+        self.assertIn('if (waited >= kStartMillis) break;', renderer)
+        self.assertIn('render: idle %d ticks, block counter moved %d', renderer)
+        self.assertIn('delay_ticks(kGapMillis);', renderer)
+        # The take's speed and too-slow limit count ticks; mode 2 waits on no counter.
+        take = source[source.index('void render_take(u32 total, u32 hold) {'):]
+        take = take[:take.index('\n}\n')]
+        self.assertIn('const u32 from = tick_count();', take)
+        self.assertIn('if (tick_count() - from - (paused - paused_from) > kMaxElapsedMillis) {', take)
+        self.assertIn('take.elapsed = tick_count() - from - take.paused;', take)
+        self.assertNotIn('kNoBlocks', take)
+        # A static counter is logged, and a nominal block taken; only a missing tick stops it.
+        clock = source[source.index('bool measure_clock() {'):]
+        clock = clock[:clock.index('\n}\n')]
+        self.assertIn('per_block = nominal_per_block(per_tick);', clock)
+        self.assertIn('not rendering', clock)
+        self.assertNotIn('no audio blocks', clock)
 
     def test_startup_starts_the_render_on_the_audio_role_after_the_engines(self):
         self.assertNotIn('sdk_bounce_render_startup', render(['probe']))

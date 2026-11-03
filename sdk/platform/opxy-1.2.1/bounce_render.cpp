@@ -3,10 +3,10 @@
 // /fat32/samples/bounce/render NNN/mix.wav on its own storage.
 //
 // A task of its own at priority 3 (below spibridge_io_task at 5 and the comm
-// tasks at 6) waits 120 s of audio after it starts, measures the clock, then runs
+// tasks at 6) waits 120 s after it starts, measures the clock, then runs
 // kTakes takes with the same seeds. Each take:
 //   1. sets audio mode 2, in which the audio interrupt still counts its block and
-//      sends silence but renders nothing, and waits for the block counter to move;
+//      sends silence but renders nothing, and waits a settle pause;
 //   2. seeds the DSP's random generator;
 //   3. plays a chord on track 0 through stock's note-on, as its benchmark does;
 //   4. renders blocks itself with the scheduler suspended around each engine call,
@@ -21,10 +21,22 @@
 // Nothing crosses the bridge but the log lines. The service links only with
 // OPXY_BOUNCE_RENDER=1 and starts from the audio role's startup (sdk_startup_synth).
 //
+// Clocks (bounce-2a-003). bounce-2a-002 logged its first line and then nothing for
+// 13 minutes, in its 120 s wait on stock's block counter. In stock that counter
+// (84a50b98) is counted first thing by every call of the L1 block wrapper, in every
+// mode, and every live block goes through it; but it is a halfword that wraps every
+// 95 s, which 002 read as a word (a wrap would have ended its wait early, not held
+// it). So the wait never saw the counter move, or the task never woke from its
+// semaphore sleep; stock alone doesn't say which. Every wait now counts FreeRTOS
+// ticks (the core timer's 400,000 cycles; 1 ms at 400 MHz) and sleeps with
+// vTaskDelay, as the DSP's own main_task does each pass; the block counter is
+// widened from 16 bits (Counter16) and only logged and measured. The idle window
+// logs a line every 10 s with both clocks, so the next log tells the two apart.
+//
 // Diagnostics (bounce-2a-002): a "step" line goes out immediately before and after
-// every risky step, and the task then waits kSettleMillis of audio blocks before
-// going on. Stock's log call only formats the line into a 64 KiB RAM ring
-// (disk_log.cpp's sink 8c0cd7fa, interrupts masked); the DSP's main thread
+// every risky step, and the task then waits kSettleMillis ticks before going on.
+// Stock's log call only formats the line into a 64 KiB RAM ring (disk_log.cpp's
+// sink 8c0cd7fa, interrupts masked); the DSP's main thread
 // (main_thread_bfs.cpp, 8c0ba3d4) posts the ring's drain (8c0ba908 -> 8c0ce7c8:
 // fwrite of the ring, then fflush) as a background job about once a second. A
 // hard crash loses whatever is still in the ring, so the wait lets the line reach
@@ -36,6 +48,7 @@
 #include "stock.hpp"
 
 using opxy::i32;
+using opxy::u16;
 using opxy::u32;
 using opxy::platform::at;
 using opxy::platform::stock;
@@ -55,7 +68,7 @@ template <class... A> void log(u32 line, const char* format, A... args) {
 // Stock 1.2.1 on the DSP (drafts/bounce-stems.md §7.2, §7.7).
 const u32 kEngine = 0x84c696fc;        // the audio engine object every render and note call takes
 const u32 kMode = 0x842e2a00;          // audio mode: 0 plays, 2 sends silence and renders nothing
-const u32 kBlocks = 0x84a50b98;        // the audio interrupt's block counter, in every mode
+const u32 kBlocks = 0x84a50b98;        // the audio interrupt's block counter, in every mode: a halfword
 const u32 kTrackWords = 0x11b01d48;    // a track's instrument word; kNoInstrument: note-on returns at once
 const u32 kNoInstrument = 0x1d;
 const u32 kRandom = 0x11b01e50;        // the DSP's LCG state (x * 1664525 + 1013904223)
@@ -65,11 +78,16 @@ void note_on(u32 track, u32 note) {
     stock<void(void*, u32, u32, u32, u32, u32)>(0x8d50e81c)(at<void>(kEngine), track, note, 127, 1, 0);
 }
 void note_off(u32 track, u32 note) { stock<void(void*, u32, u32, u32)>(0x8d50e964)(at<void>(kEngine), track, note, 1); }
-// FreeRTOS 10.0.0's vTaskSuspendAll, xTaskResumeAll and xTaskGetTickCount.
+// FreeRTOS 10.0.0's vTaskSuspendAll, xTaskResumeAll, xTaskGetTickCount and vTaskDelay
+// (the DSP's main_task sleeps a tick with it each pass, 8c0ba506).
 void suspend_tasks() { stock<void()>(0x8c03ee34)(); }
 void resume_tasks() { stock<u32()>(0x8c03f284)(); }
 u32 tick_count() { return stock<u32()>(0x8c03ee20)(); }
-u32 blocks() { return word(kBlocks); }
+void delay_ticks(u32 ticks) { stock<void(u32)>(0x8c040188)(ticks); }
+u32 raw_blocks() { return *at<const volatile u16>(kBlocks); }
+Counter16 counter;
+// The block counter widened to 32 bits; read at least every 65,536 blocks (95 s).
+u32 blocks() { return counter.read(raw_blocks()); }
 u32 cycles() { return sdk_benchmark_cycles(); }
 
 // How each engine call is kept whole against tasks. kSuspend (the design) stops
@@ -78,9 +96,12 @@ u32 cycles() { return sdk_benchmark_cycles(); }
 enum Atomic { kSuspend, kMask };
 const Atomic kAtomic = kSuspend;
 
-// The test's settings, fixed at compile time.
+// The test's settings, fixed at compile time. Waits are in ticks, a tick taken as
+// a millisecond; the take's length is in audio.
 const u32 kStartMillis = 120000;       // after the task starts: a window to play the base with the task idle
+const u32 kIdleLogMillis = 10000;      // a line with both clocks this often in that window
 const u32 kSettleMillis = 1500;        // after each step line, so stock's ~1 s log drain writes it out
+const u32 kClockTicks = 300;           // the clock measurement's span
 const u32 kHoldMillis = 20000;         // the chord held
 const u32 kTailMillis = 5000;          // rendered after its release
 const u32 kGapMillis = 5000;           // between takes
@@ -102,15 +123,15 @@ const char* ended_name(u32 ended) {
     return ended < 6 ? names[ended] : "?";
 }
 
-u32 semaphore;
 u32 task_handle;
 volatile u32 started;
 unsigned char* storage;   // allocation: chunk buffer, then the engine's blocks
 Chunk chunk;
 i32* out;                 // one engine block, interleaved left and right
 i32* in;                  // its input, zero
-u32 per_block;            // measured cycles a block
-u32 paused;               // blocks spent waiting for step lines to reach /logs, since boot
+u32 per_block;            // measured cycles a block (nominal when the counter doesn't move)
+u32 per_tick;             // measured cycles a tick
+u32 paused;               // ticks spent waiting for step lines to reach /logs, since boot
 u32 hashes[kTakes];
 char folder[96];
 char temporary[112];
@@ -120,7 +141,8 @@ unsigned char header[kHeaderBytes];
 struct Take {
     u32 number, ended, engine_word, mode_before, mode_after;
     bool headed, renamed;
-    u32 rendered, elapsed, settle, sleeps, paused;
+    u32 rendered, elapsed, settle, sleeps, paused;   // elapsed and paused in ticks
+    u32 mode2_ticks, mode2_blocks;   // mode 2's span, and the counter's move over it
     u32 mib_logged;       // whole MiB of the file already announced
     u32 render_units, worst_render;   // cycles / 256, and cycles
     u32 write_units, worst_write, writes, short_writes;
@@ -133,6 +155,7 @@ struct Take {
         number = ended = engine_word = mode_before = mode_after = 0;
         headed = renamed = false;
         rendered = elapsed = settle = sleeps = paused = mib_logged = 0;
+        mode2_ticks = mode2_blocks = 0;
         render_units = worst_render = write_units = worst_write = writes = short_writes = 0;
         left.reset();
         right.reset();
@@ -142,24 +165,16 @@ struct Take {
     }
 } take;
 
-// Waits until the block counter has moved n blocks, a tick at a time; false when
-// it hasn't within limit ticks.
-bool wait_blocks(u32 n, u32 limit) {
-    const u32 from = blocks();
-    for (u32 t = 0; t < limit; ++t) {
-        if (blocks() - from >= n) return true;
-        sleep_ticks(semaphore, 1);
-    }
-    return blocks() - from >= n;
-}
-
 // Lets stock's log drain (about once a second) write the lines so far before
-// the next step: kSettleMillis of audio blocks, or about that many ticks when no
-// block passes. Never called with the scheduler suspended.
+// the next step: kSettleMillis ticks, in mode 0 or 2 alike. It reads the block
+// counter on each side, which keeps the widened count current. Never called with
+// the scheduler suspended.
 void settle() {
-    const u32 from = blocks();
-    wait_blocks(blocks_for_millis(kSettleMillis), 2 * kSettleMillis);
-    paused += blocks() - from;
+    const u32 from = tick_count();
+    blocks();
+    delay_ticks(kSettleMillis);
+    blocks();
+    paused += tick_count() - from;
 }
 
 // One diagnostic line, then the wait that gets it into /logs.
@@ -179,25 +194,36 @@ u32 edge(u32* at_cycles) {
     return now;
 }
 
-// Cycles a block, and a tick, measured between two block edges about 300 ticks
-// apart: a fact on the device rather than an assumed clock or tick rate.
+// Cycles a tick, and a block, measured between two block edges about kClockTicks
+// ticks apart: a fact on the device rather than an assumed clock or tick rate.
+// The ticks pace every wait, so a tick clock that isn't there stops the render;
+// a block counter that doesn't move is logged and a nominal block taken instead,
+// since mode 2, not the counter, keeps the interrupt off the engine.
 bool measure_clock() {
-    per_block = 0;
+    per_block = per_tick = 0;
     u32 c0, c1;
     const u32 b0 = edge(&c0);
     const u32 t0 = tick_count();
-    sleep_ticks(semaphore, 300);
+    delay_ticks(kClockTicks);
     const u32 b1 = edge(&c1);
     const u32 t1 = tick_count();
-    const u32 n = b1 - b0;
-    if (!n || n > 100000) {
-        log(__LINE__, "render: no audio blocks (%d in 300 ticks); not rendering", static_cast<int>(n));
+    const u32 n = b1 - b0, t = t1 - t0;
+    per_tick = t ? (c1 - c0) / t : 0;
+    // The core timer's 400,000 cycles: 100 MHz to 1 GHz brackets any tick this could be.
+    if (per_tick < 100000 || per_tick > 1000000) {
+        log(__LINE__, "render: no tick clock (%d cycles a tick over %d ticks); not rendering", static_cast<int>(per_tick),
+            static_cast<int>(t));
         return false;
     }
-    per_block = (c1 - c0) / n;
-    const u32 per_tick = t1 != t0 ? (c1 - c0) / (t1 - t0) : 0;
+    if (n >= 2 && n < 100000) {
+        per_block = (c1 - c0) / n;
+    } else {
+        per_block = nominal_per_block(per_tick);
+        log(__LINE__, "render clock: the block counter moved %d in %d ticks (raw %x); a nominal block", static_cast<int>(n),
+            static_cast<int>(t), raw_blocks());
+    }
     log(__LINE__, "render clock: %d cycles a block, %d cycles a tick (%d ticks, %d blocks)", static_cast<int>(per_block),
-        static_cast<int>(per_tick), static_cast<int>(t1 - t0), static_cast<int>(n));
+        static_cast<int>(per_tick), static_cast<int>(t), static_cast<int>(n));
     // A block is 1.45 ms: 100 MHz to 1 GHz brackets any core clock this could be.
     return per_block > 145000 && per_block < 1451000;
 }
@@ -267,18 +293,15 @@ void render_take(u32 total, u32 hold) {
     const int n = static_cast<int>(take.number);
     step(__LINE__, "step take %d: mode 2, before (track word %x)", n, take.engine_word);
     set_mode(2);
-    step(__LINE__, "step take %d: mode 2 set, now %d; settling", n, static_cast<int>(word(kMode)));
+    // The step's settle pause (kSettleMillis ticks, about a thousand blocks) lets any
+    // block the interrupt began in mode 0 finish before the engine is touched; the
+    // counter's move over it is logged, not waited on.
+    const u32 mode2_from = tick_count();
     const u32 before = blocks();
-    if (!wait_blocks(2, 1000)) {
-        step(__LINE__, "step take %d: no blocks in mode 2; mode 0, before", n);
-        set_mode(0);
-        take.mode_after = word(kMode);
-        take.ended = kNoBlocks;
-        step(__LINE__, "step take %d: mode 0 set, now %d", n, static_cast<int>(take.mode_after));
-        return;
-    }
+    step(__LINE__, "step take %d: mode 2 set, now %d; settling", n, static_cast<int>(word(kMode)));
     take.settle = blocks() - before;
-    step(__LINE__, "step take %d: mode 2 settled after %d blocks", n, static_cast<int>(take.settle));
+    step(__LINE__, "step take %d: mode 2 settled, %d blocks counted in %d ticks", n, static_cast<int>(take.settle),
+         static_cast<int>(tick_count() - mode2_from));
     step(__LINE__, "step take %d: seeding, before", n);
     *at<volatile u32>(kRandom) = kSeed;
     take.dither.state = kDitherSeed;
@@ -290,9 +313,8 @@ void render_take(u32 total, u32 hold) {
         step(__LINE__, "step take %d: note-on %d, after", n, static_cast<int>(kChord[i]));
     }
     bool released = false;
-    const u32 limit = blocks_for_millis(kMaxElapsedMillis);
-    // Speed and the too-slow limit count from here, without the waits for step lines.
-    const u32 from = blocks();
+    // Speed and the too-slow limit count ticks from here, without the waits for step lines.
+    const u32 from = tick_count();
     const u32 paused_from = paused;
     step(__LINE__, "step take %d: first render call, before", n);
     for (u32 b = 0; b < total; ++b) {
@@ -320,9 +342,10 @@ void render_take(u32 total, u32 hold) {
                  static_cast<int>(take.rendered), static_cast<int>(take.worst_render), static_cast<int>(take.sleeps));
         if (take.ended) break;
         if ((b + 1) % kYieldBlocks == 0) {
-            sleep_ticks(semaphore, 1);
+            delay_ticks(1);
             ++take.sleeps;
-            if (blocks() - from - (paused - paused_from) > limit) {
+            blocks();
+            if (tick_count() - from - (paused - paused_from) > kMaxElapsedMillis) {
                 take.ended = kTooSlow;
                 break;
             }
@@ -331,8 +354,10 @@ void render_take(u32 total, u32 hold) {
     // A take cut short leaves its chord to ring out live rather than held.
     if (!released) release_chord();
     take.paused = paused - paused_from;
-    take.elapsed = blocks() - from - take.paused;
+    take.elapsed = tick_count() - from - take.paused;
     step(__LINE__, "step take %d: mode 0, before (%d blocks rendered)", n, static_cast<int>(take.rendered));
+    take.mode2_ticks = tick_count() - mode2_from;
+    take.mode2_blocks = blocks() - before;
     set_mode(0);
     take.mode_after = word(kMode);
     step(__LINE__, "step take %d: mode 0 set, now %d", n, static_cast<int>(take.mode_after));
@@ -377,9 +402,10 @@ void report() {
     const u32 bytes = chunk.written + chunk.used;
     log(__LINE__, "take %d: %d frames, track word %x, ended by %s, header %d, renamed %d", n,
         static_cast<int>(chunk.frames()), take.engine_word, ended_name(take.ended), take.headed ? 1 : 0, take.renamed ? 1 : 0);
-    log(__LINE__, "take %d: rendered %d blocks in %d, speed x100 %d, engine pct %d, worst %d us, sleeps %d", n,
-        static_cast<int>(take.rendered), static_cast<int>(take.elapsed),
-        static_cast<int>(speed_x100(take.rendered, take.elapsed)),
+    const u32 elapsed_blocks = blocks_for_ticks(take.elapsed, per_tick, per_block);
+    log(__LINE__, "take %d: rendered %d blocks in %d ticks (%d blocks), speed x100 %d, engine pct %d, worst %d us, sleeps %d",
+        n, static_cast<int>(take.rendered), static_cast<int>(take.elapsed), static_cast<int>(elapsed_blocks),
+        static_cast<int>(speed_x100(take.rendered, elapsed_blocks)),
         static_cast<int>(block_percent(take.render_units, take.rendered, per_block)),
         static_cast<int>(micro ? take.worst_render / micro : 0), static_cast<int>(take.sleeps));
     log(__LINE__, "take %d: wrote %d KiB in %d writes, %d ms, worst %d us, %d KiB/s, short %d", n,
@@ -388,9 +414,12 @@ void report() {
         static_cast<int>(take.short_writes));
     log(__LINE__, "take %d: left %x %x %x, right %x %x %x", n, take.left.peak, take.left.high, take.left.low,
         take.right.peak, take.right.high, take.right.low);
-    log(__LINE__, "take %d: settle %d blocks, mode %d then %d, hash %x, step waits %d blocks", n,
+    log(__LINE__, "take %d: settle %d blocks, mode %d then %d, hash %x, step waits %d ticks", n,
         static_cast<int>(take.settle), static_cast<int>(take.mode_before), static_cast<int>(take.mode_after),
         take.hash.value, static_cast<int>(take.paused));
+    log(__LINE__, "take %d: mode 2 for %d ticks, block counter moved %d (about %d expected)", n,
+        static_cast<int>(take.mode2_ticks), static_cast<int>(take.mode2_blocks),
+        static_cast<int>(blocks_for_ticks(take.mode2_ticks, per_tick, per_block)));
     settle();
 }
 
@@ -434,13 +463,27 @@ void run_take(u32 index) {
 }
 
 void renderer(void*) {
-    // About 40 s from the task's start, counted in audio blocks: none pass until
-    // the SPORT runs, so a stalled audio path never starts a take.
-    const u32 first = blocks();
-    step(__LINE__, "render: waiting %d ms of audio blocks (%d) before the first take", static_cast<int>(kStartMillis),
-         static_cast<int>(blocks_for_millis(kStartMillis)));
-    while (blocks() - first < blocks_for_millis(kStartMillis)) sleep_ticks(semaphore, 100);
-    step(__LINE__, "render: wait over after %d blocks; measuring the clock", static_cast<int>(blocks() - first));
+    // kStartMillis ticks from the task's start, a second's sleep at a time, with a
+    // line every kIdleLogMillis giving both clocks: whether the task wakes, and
+    // whether the block counter moves in mode 0.
+    const u32 first = tick_count();
+    const u32 counted = blocks();
+    step(__LINE__, "render: waiting %d ticks before the first take (block counter raw %x, word %x)",
+         static_cast<int>(kStartMillis), raw_blocks(), word(kBlocks));
+    u32 next_line = kIdleLogMillis / 10;
+    for (;;) {
+        const u32 waited = tick_count() - first;
+        if (waited >= kStartMillis) break;
+        if (waited >= next_line) {
+            next_line += kIdleLogMillis;
+            log(__LINE__, "render: idle %d ticks, block counter moved %d (raw %x), cycles %x", static_cast<int>(waited),
+                static_cast<int>(blocks() - counted), raw_blocks(), cycles());
+        }
+        delay_ticks(1000);
+        blocks();
+    }
+    step(__LINE__, "render: wait over after %d ticks, block counter moved %d; measuring the clock",
+         static_cast<int>(tick_count() - first), static_cast<int>(blocks() - counted));
     if (!measure_clock()) {
         settle();
         return;
@@ -463,7 +506,7 @@ void renderer(void*) {
     for (u32 i = 0; i < kTakes; ++i) {
         if (i) {
             step(__LINE__, "render: gap of %d ms before take %d", static_cast<int>(kGapMillis), static_cast<int>(i + 1));
-            wait_blocks(blocks_for_millis(kGapMillis), 100000);
+            delay_ticks(kGapMillis);
         }
         run_take(i);
         if (take.ended && take.ended != kTooSlow) break;  // no second take after a fault
@@ -477,7 +520,7 @@ void renderer(void*) {
 void task_entry(void* argument) {
     renderer(argument);
     // The task has no stock delete to call; it sleeps out the boot.
-    for (;;) sleep_ticks(semaphore, 60000);
+    for (;;) delay_ticks(60000);
 }
 }
 
@@ -485,8 +528,7 @@ void task_entry(void* argument) {
 void sdk_bounce_render_startup() {
     if (started) return;
     started = 1;
-    semaphore = create_semaphore();
-    if (!semaphore) return;
+    counter.reset();
     if (create_task(&task_handle, task_entry, kPriority, kStack, "bounce_render") != 0)
         log(__LINE__, "render: could not start the bounce_render task");
 }

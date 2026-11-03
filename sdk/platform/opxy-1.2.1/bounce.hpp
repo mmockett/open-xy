@@ -281,7 +281,35 @@ inline u32 block_percent(u32 units, u32 blocks, u32 per_block) {
     if (!blocks || per_block < 256) return 0;
     return units / blocks * 100u / (per_block >> 8);
 }
-// Real-time factor times 100: rendered blocks over the blocks the SPORT counted meanwhile.
+// Real-time factor times 100: rendered blocks over the blocks of wall-clock time meanwhile.
 inline u32 speed_x100(u32 rendered, u32 elapsed) { return elapsed ? rendered * 100u / elapsed : 0; }
+
+// Stock's block counter (84a50b98) is a halfword: the L1 block wrapper loads it 16
+// bits wide, adds one and stores it back 16 bits wide (11a02888, 11a02892), so it
+// wraps every 65,536 blocks, about 95 s. Counter16 widens it for a reader that looks
+// at least that often: each read adds the halfword's step since the last one.
+struct Counter16 {
+    u32 last, total;
+    bool primed;
+    void reset() { last = total = 0; primed = false; }
+    u32 read(u32 raw) {
+        raw &= 0xffffu;
+        if (primed) total += (raw - last) & 0xffffu;
+        primed = true;
+        last = raw;
+        return total;
+    }
+};
+
+// Blocks of audio in a span of FreeRTOS ticks, from cycles a tick and a block as
+// measured: ticks * per_tick / per_block, in 256-cycle units so it fits 32 bits up
+// to about a million ticks at 1,000,000 cycles a tick.
+inline u32 blocks_for_ticks(u32 ticks, u32 per_tick, u32 per_block) {
+    return per_block >> 8 ? ticks * (per_tick >> 8) / (per_block >> 8) : 0;
+}
+// Cycles a block when the block counter can't be read: a 1 ms tick (the core
+// timer's 400,000 cycles at 400 MHz) and a block of 64 / 44,100 s = 640 / 441 ms.
+// Fits 32 bits up to 6.7 million cycles a tick.
+inline u32 nominal_per_block(u32 per_tick) { return (per_tick * 640u + 220u) / 441u; }
 }
 }}

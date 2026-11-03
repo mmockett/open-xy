@@ -131,6 +131,22 @@ static void render_checks() {
             block_percent(100 * (580500 / 4 / 256), 100, 580500) == 25);
     require(block_percent(5, 0, 580500) == 0 && block_percent(5, 1, 0) == 0);
     require(speed_x100(17228, 5743) == 299 && speed_x100(1, 0) == 0);
+
+    // The halfword block counter, widened: steps add, a wrap past 0xffff carries.
+    Counter16 counter;
+    counter.reset();
+    require(counter.read(0xfff0) == 0);            // the first read only primes
+    require(counter.read(0xfff8) == 8);
+    require(counter.read(0x0004) == 20);           // wrapped: 8 + 12
+    require(counter.read(0x10004) == 20);          // only the low half counts
+    require(counter.read(0x8003) == 20 + 0x7fff);
+    counter.reset();
+    require(counter.read(0x1234) == 0 && counter.read(0x1233) == 0xffff);  // a full lap less one
+    // Ticks to blocks: 1 ms ticks of 400,000 cycles, 580,500-cycle blocks.
+    require(blocks_for_ticks(1000, 400000, 580500) == 689);
+    require(blocks_for_ticks(120000, 400000, 580500) == 82681);
+    require(blocks_for_ticks(5, 400000, 0) == 0 && blocks_for_ticks(1000000, 1000000, 1451000) == 689253);
+    require(nominal_per_block(400000) == 580499 && nominal_per_block(999999) == 1451246);
 }
 
 int main() {
