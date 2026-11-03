@@ -30,6 +30,16 @@ static void render_checks() {
     require(frames == 1102592);
     // No overflow at the longest a take could be asked for (two hours).
     require(blocks_for_millis(7200000u) == 4961250);
+    // The diagnostic build's wait before the first take, and its 1.5 s wait after a step line.
+    require(blocks_for_millis(1500) == 1034);
+
+    // Step lines after blocks 1, 16 and 256, then every 2048; a take's 17,228 blocks log 11.
+    require(!render_checkpoint(0) && render_checkpoint(1) && !render_checkpoint(2));
+    require(render_checkpoint(16) && !render_checkpoint(17) && render_checkpoint(256) && !render_checkpoint(512));
+    require(render_checkpoint(2048) && !render_checkpoint(2049) && render_checkpoint(4096) && render_checkpoint(16384));
+    u32 checkpoints = 0;
+    for (u32 b = 1; b <= 13782 + 3446; ++b) checkpoints += render_checkpoint(b) ? 1 : 0;
+    require(checkpoints == 11);
 
     // A 32-byte-aligned chunk inside a slightly larger allocation, for any start.
     static unsigned char raw[kChunkBytes + 2 * kChunkAlign];

@@ -165,6 +165,38 @@ class RenderStock(unittest.TestCase):
         self.assertEqual(s.absolute(0x8d51af6e), (True, 0x11b01e50))
         self.assertEqual(s.absolute(0x8c0b7ab8), (True, 0x11b01e50))
 
+    def test_log_lines_reach_the_file_through_a_ring_drained_about_once_a_second(self):
+        # What the diagnostic build's wait after each step line relies on.
+        s = self.stock
+        # The log call formats the line (8c042cbc) and hands it to each sink in the table at 080024e8.
+        self.assertEqual(s.call_target(0x8c042f1c), 0x8c042cbc)
+        self.assertEqual(s.immediate(0x8c042eb2), (13, 0x080024e8))
+        # disk_log.cpp's sink (8c0cdc04), registered through 8c042c54, only copies the line into
+        # the writer object 08024cf4's RAM ring (8c0cd7fa).
+        self.assertEqual(s.immediate(0x8c0ba0f4), (0, 0x8c0cdc04))
+        self.assertEqual(s.call_target(0x8c0ba0fc), 0x8c042c54)
+        self.assertEqual(s.immediate(0x8c0cdc1a), (0, 0x08024cf4))
+        self.assertEqual(s.call_target(0x8c0cdc22), 0x8c0cd7fa)
+        self.assertTrue(s.data[mapped_offset(s.blocks, 0x84017a0c, 22):].startswith(b'../src/bf/disk_log.cpp'))
+        self.assertEqual(s.immediate(0x8c0ce67a), (1, 0x84017a0c))
+        # The drain (8c0ce7c8 on 08024cf4) fwrites the ring and fflushes the file.
+        self.assertEqual(s.immediate(0x8c0ba90c), (0, 0x08024cf4))
+        self.assertEqual(s.call_target(0x8c0ba914), 0x8c0ce7c8)
+        self.assertEqual(s.call_target(0x8c0ce81c), 0x8fed0780)
+        self.assertEqual(s.call_target(0x8c0ce83e), 0x8fed019a)
+        # main_thread_bfs.cpp posts that drain (8c0ba908) as a job once its timer passes 1000.
+        self.assertEqual(s.halves(0x8c0ba3d4, 2), (0xe122, 1000))
+        self.assertEqual(s.immediate(0x8c0ba6c0), (2, 0x8c0ba908))
+        self.assertEqual(s.call_target(0x8c0ba6cc), 0x8d4dd728)
+        self.assertEqual(s.immediate(0x8c0ba8f2), (1, 0x8400f280))
+        self.assertTrue(s.data[mapped_offset(s.blocks, 0x8400f280, 31):].startswith(b'../src/main/main_thread_bfs.cpp'))
+
+    def test_only_the_benchmark_command_sets_the_audio_mode(self):
+        # The setter's only stock callers are the 0xc8 command handler's, so mode 2 is the render's alone.
+        s = self.stock
+        self.assertEqual(s.call_target(0x8d5aec36), 0x8d4ff0a8)
+        self.assertEqual(s.call_target(0x8d5aec72), 0x8d4ff0a8)
+
     def test_fwrite_hands_large_writes_to_write(self):
         # fwrite's unbuffered path calls write() once for the whole length.
         self.assertEqual(self.stock.call_target(0x8fed0856), 0x8c0bcbf6)
@@ -186,6 +218,16 @@ class Render(unittest.TestCase):
             self.assertNotIn('sdk/bounce.o', names)
         # No stock patch: the render starts from startup and calls stock directly.
         self.assertFalse([p for p in profile['patches'] if p.get('service') == 'bounce_render'])
+
+    def test_diagnostic_build_waits_two_minutes_and_after_every_step_line(self):
+        source = (Path(native.ROOT) / 'sdk/platform/opxy-1.2.1/bounce_render.cpp').read_text()
+        self.assertIn('const u32 kStartMillis = 120000;', source)
+        self.assertIn('const u32 kSettleMillis = 1500;', source)
+        # Every step line waits for the drain; none is logged with the scheduler suspended.
+        body = source[source.index('template <class... A> void step('):]
+        self.assertIn('settle();', body[:body.index('\n}\n')])
+        block = source[source.index('void render_block() {'):]
+        self.assertNotIn('step(', block[:block.index('\n}\n')])
 
     def test_startup_starts_the_render_on_the_audio_role_after_the_engines(self):
         self.assertNotIn('sdk_bounce_render_startup', render(['probe']))

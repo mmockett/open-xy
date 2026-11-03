@@ -3,7 +3,7 @@
 // /fat32/samples/bounce/render NNN/mix.wav on its own storage.
 //
 // A task of its own at priority 3 (below spibridge_io_task at 5 and the comm
-// tasks at 6) waits about 40 s after it starts, measures the clock, then runs
+// tasks at 6) waits 120 s of audio after it starts, measures the clock, then runs
 // kTakes takes with the same seeds. Each take:
 //   1. sets audio mode 2, in which the audio interrupt still counts its block and
 //      sends silence but renders nothing, and waits for the block counter to move;
@@ -18,9 +18,19 @@
 //   7. restores mode 0 straight after the last block, then patches the header and
 //      renames mix.tmp to mix.wav;
 //   8. writes a 4 MiB burst in whole chunks and removes it.
-// Nothing crosses the bridge but the log lines, about six a take, all written
-// after the take. The service links only with OPXY_BOUNCE_RENDER=1 and starts
-// from the audio role's startup (sdk_startup_synth).
+// Nothing crosses the bridge but the log lines. The service links only with
+// OPXY_BOUNCE_RENDER=1 and starts from the audio role's startup (sdk_startup_synth).
+//
+// Diagnostics (bounce-2a-002): a "step" line goes out immediately before and after
+// every risky step, and the task then waits kSettleMillis of audio blocks before
+// going on. Stock's log call only formats the line into a 64 KiB RAM ring
+// (disk_log.cpp's sink 8c0cd7fa, interrupts masked); the DSP's main thread
+// (main_thread_bfs.cpp, 8c0ba3d4) posts the ring's drain (8c0ba908 -> 8c0ce7c8:
+// fwrite of the ring, then fflush) as a background job about once a second. A
+// hard crash loses whatever is still in the ring, so the wait lets the line reach
+// the file before the step it names runs. Calling the drain from this task
+// instead would race the posted one on the ring's tail, so it isn't called. The
+// waits are left out of the take's speed and its too-slow limit.
 #include "bounce.hpp"
 #include "bounce_stock.hpp"
 #include "stock.hpp"
@@ -69,7 +79,8 @@ enum Atomic { kSuspend, kMask };
 const Atomic kAtomic = kSuspend;
 
 // The test's settings, fixed at compile time.
-const u32 kStartMillis = 40000;        // after the task starts, so the workspace has loaded
+const u32 kStartMillis = 120000;       // after the task starts: a window to play the base with the task idle
+const u32 kSettleMillis = 1500;        // after each step line, so stock's ~1 s log drain writes it out
 const u32 kHoldMillis = 20000;         // the chord held
 const u32 kTailMillis = 5000;          // rendered after its release
 const u32 kGapMillis = 5000;           // between takes
@@ -99,6 +110,7 @@ Chunk chunk;
 i32* out;                 // one engine block, interleaved left and right
 i32* in;                  // its input, zero
 u32 per_block;            // measured cycles a block
+u32 paused;               // blocks spent waiting for step lines to reach /logs, since boot
 u32 hashes[kTakes];
 char folder[96];
 char temporary[112];
@@ -108,7 +120,8 @@ unsigned char header[kHeaderBytes];
 struct Take {
     u32 number, ended, engine_word, mode_before, mode_after;
     bool headed, renamed;
-    u32 rendered, elapsed, settle, sleeps;
+    u32 rendered, elapsed, settle, sleeps, paused;
+    u32 mib_logged;       // whole MiB of the file already announced
     u32 render_units, worst_render;   // cycles / 256, and cycles
     u32 write_units, worst_write, writes, short_writes;
     Level left, right;
@@ -119,7 +132,7 @@ struct Take {
     void reset() {
         number = ended = engine_word = mode_before = mode_after = 0;
         headed = renamed = false;
-        rendered = elapsed = settle = sleeps = 0;
+        rendered = elapsed = settle = sleeps = paused = mib_logged = 0;
         render_units = worst_render = write_units = worst_write = writes = short_writes = 0;
         left.reset();
         right.reset();
@@ -138,6 +151,21 @@ bool wait_blocks(u32 n, u32 limit) {
         sleep_ticks(semaphore, 1);
     }
     return blocks() - from >= n;
+}
+
+// Lets stock's log drain (about once a second) write the lines so far before
+// the next step: kSettleMillis of audio blocks, or about that many ticks when no
+// block passes. Never called with the scheduler suspended.
+void settle() {
+    const u32 from = blocks();
+    wait_blocks(blocks_for_millis(kSettleMillis), 2 * kSettleMillis);
+    paused += blocks() - from;
+}
+
+// One diagnostic line, then the wait that gets it into /logs.
+template <class... A> void step(u32 line, const char* format, A... args) {
+    log(line, format, args...);
+    settle();
 }
 
 // The next block edge: spins on the counter, at most about two blocks.
@@ -196,11 +224,21 @@ bool flush() {
     const bool whole = stored == chunk.used;
     if (!whole) ++take.short_writes;
     chunk.drained();
+    const u32 mib = chunk.written >> 20;
+    if (mib > take.mib_logged) {
+        take.mib_logged = mib;
+        step(__LINE__, "step take %d: %d MiB written (%d writes, short %d)", static_cast<int>(take.number),
+             static_cast<int>(mib), static_cast<int>(take.writes), static_cast<int>(take.short_writes));
+    }
     return whole;
 }
 
 void release_chord() {
-    for (u32 i = 0; i < kNotes; ++i) note_off(kTrack, kChord[i]);
+    for (u32 i = 0; i < kNotes; ++i) {
+        step(__LINE__, "step take %d: note-off %d, before", static_cast<int>(take.number), static_cast<int>(kChord[i]));
+        note_off(kTrack, kChord[i]);
+        step(__LINE__, "step take %d: note-off %d, after", static_cast<int>(take.number), static_cast<int>(kChord[i]));
+    }
 }
 
 // One engine block, whole with respect to tasks.
@@ -226,21 +264,37 @@ void render_take(u32 total, u32 hold) {
         take.ended = kBusy;
         return;
     }
+    const int n = static_cast<int>(take.number);
+    step(__LINE__, "step take %d: mode 2, before (track word %x)", n, take.engine_word);
     set_mode(2);
+    step(__LINE__, "step take %d: mode 2 set, now %d; settling", n, static_cast<int>(word(kMode)));
     const u32 before = blocks();
     if (!wait_blocks(2, 1000)) {
+        step(__LINE__, "step take %d: no blocks in mode 2; mode 0, before", n);
         set_mode(0);
         take.mode_after = word(kMode);
         take.ended = kNoBlocks;
+        step(__LINE__, "step take %d: mode 0 set, now %d", n, static_cast<int>(take.mode_after));
         return;
     }
-    const u32 from = blocks();
-    take.settle = from - before;
+    take.settle = blocks() - before;
+    step(__LINE__, "step take %d: mode 2 settled after %d blocks", n, static_cast<int>(take.settle));
+    step(__LINE__, "step take %d: seeding, before", n);
     *at<volatile u32>(kRandom) = kSeed;
     take.dither.state = kDitherSeed;
-    for (u32 i = 0; i < kNotes; ++i) note_on(kTrack, kChord[i]);
+    step(__LINE__, "step take %d: seeded", n);
+    for (u32 i = 0; i < kNotes; ++i) {
+        step(__LINE__, "step take %d: note-on %d, before (track word %x)", n, static_cast<int>(kChord[i]),
+             word(kTrackWords + 4 * kTrack));
+        note_on(kTrack, kChord[i]);
+        step(__LINE__, "step take %d: note-on %d, after", n, static_cast<int>(kChord[i]));
+    }
     bool released = false;
     const u32 limit = blocks_for_millis(kMaxElapsedMillis);
+    // Speed and the too-slow limit count from here, without the waits for step lines.
+    const u32 from = blocks();
+    const u32 paused_from = paused;
+    step(__LINE__, "step take %d: first render call, before", n);
     for (u32 b = 0; b < total; ++b) {
         if (b == hold) {
             release_chord();
@@ -261,11 +315,14 @@ void render_take(u32 total, u32 hold) {
             chunk.frame16(take.dither.sample(l), take.dither.sample(r));
         }
         ++take.rendered;
+        if (render_checkpoint(take.rendered))
+            step(__LINE__, "step take %d: block %d rendered, worst %d cycles, sleeps %d", n,
+                 static_cast<int>(take.rendered), static_cast<int>(take.worst_render), static_cast<int>(take.sleeps));
         if (take.ended) break;
         if ((b + 1) % kYieldBlocks == 0) {
             sleep_ticks(semaphore, 1);
             ++take.sleeps;
-            if (blocks() - from > limit) {
+            if (blocks() - from - (paused - paused_from) > limit) {
                 take.ended = kTooSlow;
                 break;
             }
@@ -273,29 +330,40 @@ void render_take(u32 total, u32 hold) {
     }
     // A take cut short leaves its chord to ring out live rather than held.
     if (!released) release_chord();
+    take.paused = paused - paused_from;
+    take.elapsed = blocks() - from - take.paused;
+    step(__LINE__, "step take %d: mode 0, before (%d blocks rendered)", n, static_cast<int>(take.rendered));
     set_mode(0);
-    take.elapsed = blocks() - from;
     take.mode_after = word(kMode);
+    step(__LINE__, "step take %d: mode 0 set, now %d", n, static_cast<int>(take.mode_after));
 }
 
 // Sustained writes on the DSP's own storage: kBurstBytes in whole chunks.
 void burst() {
     if (!take_path(temporary, sizeof temporary, "/fat32/samples/bounce/render ", take.number, "/burst.tmp")) return;
+    const int n = static_cast<int>(take.number);
+    step(__LINE__, "step take %d: burst open, before", n);
     File* file = file_open(temporary, "wb");
     if (!file) {
-        log(__LINE__, "take %d: burst file did not open", static_cast<int>(take.number));
+        step(__LINE__, "take %d: burst file did not open", n);
         return;
     }
+    step(__LINE__, "step take %d: burst open, after", n);
     u32 units = 0, written = 0;
     for (u32 done = 0; done < kBurstBytes; done += kChunkBytes) {
         const u32 start = cycles();
         written += file_write(chunk.base, 1, kChunkBytes, file);
         units += (cycles() - start) >> 8;
+        if (((done + kChunkBytes) & ((1u << 20) - 1)) == 0)
+            step(__LINE__, "step take %d: burst %d MiB written", n, static_cast<int>((done + kChunkBytes) >> 20));
     }
+    step(__LINE__, "step take %d: burst close, before", n);
     const u32 start = cycles();
     file_close(file);
     units += (cycles() - start) >> 8;
+    step(__LINE__, "step take %d: burst close, after; remove, before", n);
     remove_file(temporary);
+    step(__LINE__, "step take %d: burst removed", n);
     const u32 millis = units / (cycles_per_milli(per_block) >> 8);
     log(__LINE__, "take %d: burst %d KiB in %d ms: %d KiB/s", static_cast<int>(take.number),
         static_cast<int>(written >> 10), static_cast<int>(millis), static_cast<int>(kib_per_second(written, millis)));
@@ -320,8 +388,10 @@ void report() {
         static_cast<int>(take.short_writes));
     log(__LINE__, "take %d: left %x %x %x, right %x %x %x", n, take.left.peak, take.left.high, take.left.low,
         take.right.peak, take.right.high, take.right.low);
-    log(__LINE__, "take %d: settle %d blocks, mode %d then %d, hash %x", n, static_cast<int>(take.settle),
-        static_cast<int>(take.mode_before), static_cast<int>(take.mode_after), take.hash.value);
+    log(__LINE__, "take %d: settle %d blocks, mode %d then %d, hash %x, step waits %d blocks", n,
+        static_cast<int>(take.settle), static_cast<int>(take.mode_before), static_cast<int>(take.mode_after),
+        take.hash.value, static_cast<int>(take.paused));
+    settle();
 }
 
 // One take, start to finish, with its file.
@@ -330,19 +400,24 @@ void run_take(u32 index) {
     const u32 total = hold + blocks_for_millis(kTailMillis);
     take.reset();
     chunk.reset(chunk.base);
+    step(__LINE__, "step take %d: folder, before", static_cast<int>(index + 1));
     take.number = next_folder();
+    const int n = static_cast<int>(take.number);
+    step(__LINE__, "step take %d: folder render %d; file open, before", static_cast<int>(index + 1), n);
     if (!take.number || !take_path(temporary, sizeof temporary, "/fat32/samples/bounce/render ", take.number, "/mix.tmp") ||
         !take_path(final_path, sizeof final_path, "/fat32/samples/bounce/render ", take.number, "/mix.wav") ||
         !(take.file = file_open(temporary, "wb"))) {
-        log(__LINE__, "render: take %d could not open a file (folder %d)", static_cast<int>(index + 1),
-            static_cast<int>(take.number));
+        step(__LINE__, "render: take %d could not open a file (folder %d)", static_cast<int>(index + 1), n);
         take.ended = kNoFile;
         return;
     }
+    step(__LINE__, "step take %d: file open, after", n);
     chunk.begin();
     render_take(total, hold);
     if (!take.ended || take.ended == kTooSlow) flush();
+    step(__LINE__, "step take %d: close, before (%d bytes)", n, static_cast<int>(chunk.written + chunk.used));
     file_close(take.file);
+    step(__LINE__, "step take %d: close, after; header, before", n);
     wav_header(header, chunk.frames(), 2, 16);
     // r+b opens at the start without truncating, so the header overwrites the placeholder.
     File* file = file_open(temporary, "r+b");
@@ -350,7 +425,9 @@ void run_take(u32 index) {
         take.headed = file_write(header, 1, kHeaderBytes, file) == kHeaderBytes;
         file_close(file);
     }
+    step(__LINE__, "step take %d: header %d; rename, before", n, take.headed ? 1 : 0);
     take.renamed = rename_file(temporary, final_path);
+    step(__LINE__, "step take %d: rename %d", n, take.renamed ? 1 : 0);
     hashes[index] = take.hash.value;
     report();
     if (take.ended != kWriteShort) burst();
@@ -360,27 +437,39 @@ void renderer(void*) {
     // About 40 s from the task's start, counted in audio blocks: none pass until
     // the SPORT runs, so a stalled audio path never starts a take.
     const u32 first = blocks();
+    step(__LINE__, "render: waiting %d ms of audio blocks (%d) before the first take", static_cast<int>(kStartMillis),
+         static_cast<int>(blocks_for_millis(kStartMillis)));
     while (blocks() - first < blocks_for_millis(kStartMillis)) sleep_ticks(semaphore, 100);
-    if (!measure_clock()) return;
-    void* block = allocate(kChunkBytes + kChunkAlign + 2 * kBlockWords * sizeof(i32));
-    if (!block) {
-        log(__LINE__, "render: no memory for the %d KiB chunk", static_cast<int>(kChunkBytes >> 10));
+    step(__LINE__, "render: wait over after %d blocks; measuring the clock", static_cast<int>(blocks() - first));
+    if (!measure_clock()) {
+        settle();
         return;
     }
+    settle();
+    step(__LINE__, "step allocate, before");
+    void* block = allocate(kChunkBytes + kChunkAlign + 2 * kBlockWords * sizeof(i32));
+    if (!block) {
+        step(__LINE__, "render: no memory for the %d KiB chunk", static_cast<int>(kChunkBytes >> 10));
+        return;
+    }
+    step(__LINE__, "step allocate, after");
     storage = static_cast<unsigned char*>(block);
     chunk.reset(align_up(storage, kChunkAlign));
     out = reinterpret_cast<i32*>(chunk.base + kChunkBytes);
     in = out + kBlockWords;
-    log(__LINE__, "render: %d takes of %d notes on track %d, %d ms held, %d ms tail, %s", static_cast<int>(kTakes),
-        static_cast<int>(kNotes), static_cast<int>(kTrack + 1), static_cast<int>(kHoldMillis),
-        static_cast<int>(kTailMillis), kAtomic == kSuspend ? "scheduler suspended a block" : "interrupts masked a block");
+    step(__LINE__, "render: %d takes of %d notes on track %d, %d ms held, %d ms tail, %s", static_cast<int>(kTakes),
+         static_cast<int>(kNotes), static_cast<int>(kTrack + 1), static_cast<int>(kHoldMillis),
+         static_cast<int>(kTailMillis), kAtomic == kSuspend ? "scheduler suspended a block" : "interrupts masked a block");
     for (u32 i = 0; i < kTakes; ++i) {
-        if (i) wait_blocks(blocks_for_millis(kGapMillis), 100000);
+        if (i) {
+            step(__LINE__, "render: gap of %d ms before take %d", static_cast<int>(kGapMillis), static_cast<int>(i + 1));
+            wait_blocks(blocks_for_millis(kGapMillis), 100000);
+        }
         run_take(i);
         if (take.ended && take.ended != kTooSlow) break;  // no second take after a fault
     }
-    log(__LINE__, "render: done; take hashes %x %x, same %d", hashes[0], hashes[kTakes - 1],
-        hashes[0] == hashes[kTakes - 1] ? 1 : 0);
+    step(__LINE__, "render: done; take hashes %x %x, same %d", hashes[0], hashes[kTakes - 1],
+         hashes[0] == hashes[kTakes - 1] ? 1 : 0);
     release(storage);
     storage = nullptr;
 }

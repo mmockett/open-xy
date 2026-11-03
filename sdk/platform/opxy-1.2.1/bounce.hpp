@@ -194,6 +194,12 @@ const u32 kBlockWords = 2 * kFrames;
 // = ms * 441 / 640. Exact in 32 bits up to about 2.7 hours.
 inline u32 blocks_for_millis(u32 millis) { return (millis * 441u + 639u) / 640u; }
 
+// Blocks after which the diagnostic build logs a step line (bounce-2a-002): the
+// first, the 16th, the 256th, then every 2048th (about every 3 s of audio).
+inline bool render_checkpoint(u32 rendered) {
+    return rendered == 1 || rendered == 16 || rendered == 256 || (rendered && rendered % 2048 == 0);
+}
+
 // The first address at or after p that is a multiple of to (a power of two).
 inline unsigned char* align_up(unsigned char* p, u32 to) {
     typedef __UINTPTR_TYPE__ Address;
