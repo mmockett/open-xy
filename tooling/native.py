@@ -9,6 +9,7 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -210,7 +211,7 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
              'extension_runtime', 'extension_collection', 'extension_stock', 'track_control',
              'track_control_table', 'track_control_hooks', 'track_control_overlay', 'track_control_project',
-             'synth_pages', 'aux_tracks', 'aux_hooks', 'sample_overview', 'presets')
+             'synth_pages', 'aux_tracks', 'aux_hooks', 'sample_overview', 'presets', 'bounce')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -225,6 +226,9 @@ UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'tra
 # Machines that take over aux tracks: the chooser, presets, pages and the stock
 # roles' silencers; startup starts it, and control reaches it through sdk_aux.
 UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
+# Private bounce capture (OP-XY-Dev drafts/bounce-stems.md phase 1): linked only when
+# OPXY_BOUNCE_CAPTURE=1 asks for it, never in a release build.
+UNIT_SERVICES['bounce'] = 'bounce'
 
 
 def service_users(machines):
@@ -234,7 +238,8 @@ def service_users(machines):
     users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
-            ['hidePages' for m in machines if 'hidePages' in m.definition])
+            ['hidePages' for m in machines if 'hidePages' in m.definition] +
+            (['bounceCapture'] if os.environ.get('OPXY_BOUNCE_CAPTURE') == '1' else []))
 
 
 def module_bytes(profile):
@@ -421,7 +426,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
                                                 [x.prefix for x in sample_engines], 'control' in services,
                                                 'aux' in services, [x.prefix for x in effects if x.display != 'stock'],
-                                                [x.prefix for x in sample_engines if x.display != 'stock'])), obj)
+                                                [x.prefix for x in sample_engines if x.display != 'stock'],
+                                                'bounce' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)

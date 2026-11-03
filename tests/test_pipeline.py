@@ -95,8 +95,9 @@ class Services(unittest.TestCase):
         self.assertTrue(any(m.kind == 'sample' for m in machines))
         steps = lambda selection: [step for _name, m, step in native.plan(selection)
                                    if m is None and not step.startswith('extension:')]
-        # The fixtures declare no track control, hidden pages or aux tracks: those services stay off.
-        control = [u for u, service in native.UNIT_SERVICES.items() if service in ('control', 'aux')]
+        # The fixtures declare no track control, hidden pages or aux tracks: those services stay off,
+        # as does the private bounce capture without OPXY_BOUNCE_CAPTURE=1.
+        control = [u for u, service in native.UNIT_SERVICES.items() if service in ('control', 'aux', 'bounce')]
         self.assertEqual(steps(machines), [u for u in native.SDK_UNITS if u not in control])  # in link order
         without = [m for m in machines if m.kind != 'sample']  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])

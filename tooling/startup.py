@@ -14,7 +14,8 @@ def _declare(name, signature='()'):
     return f'int {name}{signature} __asm__("{name}");'
 
 
-def render(prefixes, effects=(), stock_page=(), control=False, aux=False, effect_screens=(), sample_screens=()):
+def render(prefixes, effects=(), stock_page=(), control=False, aux=False, effect_screens=(), sample_screens=(),
+           bounce=False):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     sample_screens: those of them that also draw their own screen over it.
@@ -22,7 +23,9 @@ def render(prefixes, effects=(), stock_page=(), control=False, aux=False, effect
     last. Without it, the companion's calls into the service do nothing.
     aux: the build links the aux service (aux tracks), which starts after it.
     effect_screens: effects that draw their own page (SDK 1.7), whose screen
-    registers on the GUI role."""
+    registers on the GUI role.
+    bounce: the build links the private bounce capture, whose writer task starts
+    last on the GUI role."""
     require(1 <= len(prefixes) <= MAX_ENGINES and len(set(prefixes)) == len(prefixes),
             'Startup needs distinct engine prefixes')
     require(len(set(effects)) == len(effects) <= MAX_ENGINES and not set(effects) & set(prefixes),
@@ -72,6 +75,9 @@ def render(prefixes, effects=(), stock_page=(), control=False, aux=False, effect
         require(control, 'The aux service needs the control service')
         declarations.append('void sdk_aux_startup() __asm__("sdk_aux_startup");')
         screens.append('    sdk_aux_startup();')
+    if bounce:
+        declarations.append('void sdk_bounce_startup() __asm__("sdk_bounce_startup");')
+        screens.append('    sdk_bounce_startup();')
     sample = [f'    if (engine == value({prefix}_engine_id)) return {prefix}_screen_ready() == 1 ? value({prefix}_screen_page_id) : 0;'
               for prefix in sample_screens]
     values = dict(DECLARATIONS='\n'.join(declarations), OWNED_SCREENS='\n'.join(owned), SAMPLE_SCREENS='\n'.join(sample),
@@ -89,8 +95,8 @@ def render(prefixes, effects=(), stock_page=(), control=False, aux=False, effect
 
 
 def generate(directory, prefixes, effects=(), stock_page=(), control=False, aux=False, effect_screens=(),
-             sample_screens=()):
+             sample_screens=(), bounce=False):
     destination = Path(directory) / 'startup.cpp'
-    destination.write_text(render(prefixes, effects, stock_page, control, aux, effect_screens, sample_screens),
+    destination.write_text(render(prefixes, effects, stock_page, control, aux, effect_screens, sample_screens, bounce),
                            encoding='utf-8', newline='\n')
     return destination
