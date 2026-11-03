@@ -87,13 +87,28 @@ struct Dither {
     }
 };
 
-// Little-endian WAV header of 44 bytes for 16-bit PCM.
+// 24-bit: the top 24 bits, rounded, saturating at full scale. No dither: the
+// rounding error is below the DAC's noise floor.
+inline i32 sample24(u32 word) {
+    const i32 v = static_cast<i32>(word);
+    i32 sum;
+    if (__builtin_add_overflow(v, 0x80, &sum)) sum = 0x7fffffff;
+    return sum >> 8;
+}
+// Little-endian 24-bit sample into three bytes.
+inline void put24(unsigned char* p, i32 v) {
+    p[0] = v & 0xff;
+    p[1] = (v >> 8) & 0xff;
+    p[2] = (v >> 16) & 0xff;
+}
+
+// Little-endian WAV header of 44 bytes for 16- or 24-bit PCM.
 inline void put16(unsigned char* p, u32 v) { p[0] = v & 0xff; p[1] = (v >> 8) & 0xff; }
 inline void put32(unsigned char* p, u32 v) { put16(p, v & 0xffff); put16(p + 2, v >> 16); }
 const u32 kHeaderBytes = 44;
 const u32 kRate = 44100;
-inline void wav_header(unsigned char* h, u32 frames, u32 channels) {
-    const u32 block = 2 * channels;
+inline void wav_header(unsigned char* h, u32 frames, u32 channels, u32 bits) {
+    const u32 block = bits / 8 * channels;
     const u32 data = frames * block;
     const char* tags[] = {"RIFF", "WAVE", "fmt ", "data"};
     const u32 at[] = {0, 8, 12, 36};
@@ -106,7 +121,7 @@ inline void wav_header(unsigned char* h, u32 frames, u32 channels) {
     put32(h + 24, kRate);
     put32(h + 28, kRate * block);
     put16(h + 32, block);
-    put16(h + 34, 16);
+    put16(h + 34, bits);
     put32(h + 40, data);
 }
 
@@ -126,5 +141,8 @@ inline bool take_path(char* out, u32 size, const char* prefix, u32 take, const c
 
 // KiB per second from bytes and milliseconds, rounded down; 0 for no time.
 // Whole KiB times 1000 fits 32 bits up to 4 GiB.
+// Ticks of the transport (96 a quarter note) in n bars of 4/4.
+inline u32 bar_ticks(u32 bars) { return bars * 4 * 96; }
+
 inline u32 kib_per_second(u32 bytes, u32 millis) { return millis ? (bytes >> 10) * 1000u / millis : 0; }
 }}
