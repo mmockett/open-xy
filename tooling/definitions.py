@@ -87,10 +87,10 @@ EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display')
 # A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose;
 # chokeSameKey 1 for a note to cut the voices still sounding its track's same key; and
 # padMix 1 (SDK 1.10) for Shift to turn each key's stock pan and level; and padControls
-# (SDK 1.10, with padMix), up to three small fields of each key's own on Shift's second row.
+# (SDK 1.10, with padMix), up to two small fields of each key's own on Shift's second row.
 DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls')
-# Pad controls share 12 bits of stock's pad word +0x14 (drum_storage.hpp).
-PAD_CONTROL_FIELDS, PAD_CONTROL_BITS = 3, 12
+# Pad controls share 9 bits of stock's pad word +0x14; its sends take 6 more (drum_storage.hpp).
+PAD_CONTROL_FIELDS, PAD_CONTROL_BITS = 2, 9
 EFFECT_BUFFER_LIMIT = 524288
 # A synth's optional GUI-side track control (opxy/track_control.hpp): its state.
 CONTROL_FIELDS = ('stateBytes', 'stateAlignment')

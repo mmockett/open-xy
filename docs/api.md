@@ -476,32 +476,32 @@ the model's place in it, so a kit's first model stays first; the second the
 model within the group (MACHINE); the third the choke group (CHOKE); and the
 fourth turns nothing.
 
-With `"padMix": 1` in `resources` (SDK 1.10; 0 or 1, omitted means 0), Shift's
-third and fourth encoders turn the selected key's own pan (PAN) and level
-(LEVEL), as on stock Drumline: pan -100..100 with 0 centred, moving faster on
-a fast turn as stock's does, and level in whole dB, -30..0, one a detent,
-shown as `-6dB`. They are stock's own pad fields, so projects and presets keep
-them with the key. Stock pans every voice of a kit already; the SDK applies the
-level, as a cut: a key a stock kit had boosted plays at 0 dB, so a voice stays
-within its declared `outputPeakQ31`. A kit without groups keeps the model and
-the choke group on Shift's first two encoders. A kit with groups has a second
-Shift row: when the encoders are on their second row, Shift's first encoder
-chooses the choke group and the other three turn nothing, and every key of
-such a kit has a second row, a model with four or fewer controls too, whose
-encoders there are blank. Shift therefore always edits the row the encoders
-are on; the display's `line` says which.
+With `"padMix": 1` in `resources` (SDK 1.10; 0 or 1, omitted means 0), Shift
+gives each key the settings of a mixer channel. On the encoders' first row it
+chooses the model (MACHINE: every model in turn, a kit with groups naming the
+group too, as `TRX BD`), the choke group (CHOKE), and the key's own pan (PAN)
+and level (LEVEL), as on stock Drumline: pan -100..100 with 0 centred, moving
+faster on a fast turn as stock's does, and level in whole dB, -30..0, one a
+detent, shown as `-6dB`. Pan and level are stock's own pad fields, so projects
+and presets keep them with the key. Stock pans every voice of a kit already;
+the SDK applies the level, as a cut: a key a stock kit had boosted plays at
+0 dB, so a voice stays within its declared `outputPeakQ31`. On the encoders'
+second row Shift edits the key's pad fields: the kit's own pad controls on the
+first two encoders, then FX I and FX II, 0..7, where 0 (`TRK`) follows the
+track's send. Every key of such a kit has the second row, a model with four or
+fewer controls too, whose encoders there are blank. Shift always edits the row
+the encoders are on; the display's `line` says which.
 
-A `padMix` kit may also declare up to three small settings of each key's own
-in `resources.padControls` (SDK 1.10), such as a filter, its resonance and a
-sample-rate reduction: a list of `{"label": "FILTER", "bits": 5, "signed":
-true}`, each with a label of at most eight letters, digits, spaces or hyphens,
-1..8 bits (`signed`, at least 2, is two's complement, so the field runs
--16..15 in five bits), together at most 12 bits. They sit on Shift's second row
-after the choke group (encoders 2..4), one step a detent, and every key has
-that row. 0 is neutral in every field, and a key the kit has never stored
-reads 0. They are kept in a stock pad word that stock saves with the project,
-copies with a pad and keeps through the kit's own edits. Before every render
-the adapter passes the played key's values to
+A `padMix` kit may declare up to two small settings of each key's own in
+`resources.padControls` (SDK 1.10), such as a filter and a sample-rate
+reduction: a list of `{"label": "FILTER", "bits": 5, "signed": true}`, each with
+a label of at most eight letters, digits, spaces or hyphens, 1..8 bits
+(`signed`, at least 2, is two's complement, so the field runs -16..15 in five
+bits), together at most 9 bits. They step one a detent. 0 is neutral in every
+field, and a key the kit has never stored reads 0. The pad fields are kept in a
+stock pad word that stock saves with the project, copies with a pad and keeps
+through the kit's own edits. Before every render the adapter passes the played
+key's pad controls to
 
 ```cpp
 void drum_pad(Voice&, Shared&, opxy::u32 owner, const opxy::i32* values);   // optional; one per declared field
@@ -510,7 +510,9 @@ bool pad_control_text(opxy::u32 field, opxy::i32 value, char* text);        // o
 
 in the machine namespace; `pad_control_text` captions a value for the stock
 header (without it, or when it returns false, the number shows). The display's
-`pad` holds the selected key's values. A kit's own header captions them itself.
+`pad` holds the selected key's pad fields. A kit's own header captions them
+itself. FX I and FX II are stored and shown; the mixer that plays them is a
+separate change.
 
 In the machine namespace, declare these callbacks in `core.h` and implement
 them alongside the engine:
@@ -636,8 +638,8 @@ means 0. Callbacks are functions in the machine's namespace.
 | --- | --- | --- | --- |
 | `stereoOutput` | 0 or 1 | Output is 64 interleaved left/right frames | |
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
-| `padControls` | Up to three `{label, bits, signed}` fields, 12 bits in all; needs `padMix` | Each key's own small settings on Shift's second row ([drum kits](#synthesis-drum-kits)) | `drum_pad`, `pad_control_text` |
-| `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift turns each key's stock pan and level; with model groups, the choke group moves to Shift's second row ([drum kits](#synthesis-drum-kits)) | |
+| `padControls` | Up to two `{label, bits, signed}` fields, 9 bits in all; needs `padMix` | Each key's own small settings on Shift's second row ([drum kits](#synthesis-drum-kits)) | `drum_pad`, `pad_control_text` |
+| `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift: the model, choke group and each key's stock pan and level; on the second row the key's pad fields ([drum kits](#synthesis-drum-kits)) | |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |

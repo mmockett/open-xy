@@ -63,13 +63,15 @@ static const unsigned char* selected_record(opxy::u32 track) {
 }
 opxy::i32 sdk_drum_pan(opxy::u32 track) { return opxy::platform::drum_pan(selected_record(track)); }
 opxy::i32 sdk_drum_level(opxy::u32 track) { return opxy::platform::drum_level(selected_record(track)); }
-opxy::u32 sdk_drum_pad_values(opxy::u32 track, opxy::i32* values) {
+void sdk_drum_pad_values(opxy::u32 track, opxy::i32* values) {
     using namespace opxy::platform;
     const DrumMachine* machine = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
-    const unsigned char* record = selected_record(track);
-    const opxy::u32 count = machine ? machine->pad_count : 0;
-    for (opxy::u32 i = 0; i < count && i < kDrumPadFields; ++i)
-        values[i] = record && drum_marked(record[24])
-            ? drum_pad_get(reinterpret_cast<const opxy::i32*>(record)[kDrumPadWord / 4], i, machine->pad_bits, machine->pad_signs) : 0;
-    return count;
+    const unsigned char* record = machine ? selected_record(track) : nullptr;
+    const bool marked = record && drum_marked(record[24]);
+    for (opxy::u32 i = 0; i < kDrumPadFields; ++i) {
+        opxy::u32 low, bits;
+        bool sign;
+        values[i] = marked && machine->pad_field(i, low, bits, sign)
+            ? drum_field_get(reinterpret_cast<const opxy::i32*>(record)[kDrumPadWord / 4], low, bits, sign) : 0;
+    }
 }

@@ -45,7 +45,8 @@ const bool kChoke = @CHOKE@;
 // cut. Stock's drum renderer already applies its pan (word 5) to every voice.
 const bool kPadMix = @PAD_MIX@;
 // padControls: the kit's fields in the pad word (payload word 6), decoded for
-// a marked pad and passed to the engine's drum_pad before every render.
+// a marked pad and passed to the engine's drum_pad before every render. The
+// pad word's sends (FX I, FX II) are not the engine's.
 const opxy::u32 kPadCount = @PAD_COUNT@;
 static const opxy::u8 pad_bits[] = {@PAD_BITS@};
 const opxy::u32 kPadSigns = @PAD_SIGNS@;
@@ -194,9 +195,9 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
         @NAMESPACE@::drum_select(slot->voice, shared, slot->owner, model);
         if (kPadCount) {
             // An unmarked pad (stock's defaults) is neutral, whatever stock left in the word.
-            opxy::i32 pads[opxy::platform::kDrumPadFields];
+            opxy::i32 pads[opxy::platform::kDrumKitPadFields];
             const bool marked = region && opxy::platform::drum_marked_q31(region[0]);
-            for (opxy::u32 i = 0; i < opxy::platform::kDrumPadFields; ++i)
+            for (opxy::u32 i = 0; i < opxy::platform::kDrumKitPadFields; ++i)
                 pads[i] = marked && i < kPadCount
                     ? opxy::platform::drum_pad_get(region[opxy::platform::kDrumPadPayload], i, pad_bits, kPadSigns) : 0;
             using namespace sdk_drum_pads;

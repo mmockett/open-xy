@@ -77,9 +77,10 @@ struct Input {
     i8 level;
     u8 line;
     u8 reserved;             // 0
-    // A drum kit's selected key's pad controls (resources.padControls, SDK
-    // 1.10), in declaration order, signed fields negative below 0; 0 when
-    // neutral, beyond the declared ones, and for other machines.
+    // A padMix drum kit's selected key's pad fields (SDK 1.10): its pad
+    // controls (resources.padControls) in 0 and 1, a signed one negative below
+    // 0, then FX I and FX II, 0..7 (0 follows the track's send); 0 when
+    // neutral, not declared, and for other machines.
     i8 pad[4];
 };
 const u32 notes_unavailable = 0xffffffffu;

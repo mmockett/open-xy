@@ -67,37 +67,40 @@ inline i32 drum_level(const void* record) {
     return db < kDrumLevelFloor ? kDrumLevelFloor : db > kDrumLevelCeiling ? kDrumLevelCeiling : db;
 }
 
-// A kit's pad controls (resources.padControls, SDK 1.10): up to three small
-// fields of the key's own, packed from bit 16 of stock's pad word +0x14 in
-// declaration order, at most 12 bits; bits 28..30 are kept for the SDK's own.
-// Stock edits that word only on its own Drumline (Shift's second encoder,
-// 8d4d6098), saves it in projects and delivers it as the note payload's word 6
-// (8d5ad73e), which an owned kit's adapter otherwise ignores. 0 in every field
-// is neutral. A field may be signed, two's complement in its bits. A pad the
-// kit has not marked reads neutral, and the SDK clears the fields when it first
-// marks a pad, so a value stock left there plays nothing.
+// A key's pad fields (SDK 1.10), in bits 16..30 of stock's pad word +0x14:
+// the kit's pad controls (resources.padControls), up to two small fields
+// packed from bit 16 in declaration order, at most 9 bits; then two 3-bit
+// sends, FX I at bits 25..27 and FX II at 28..30, for every padMix kit (0
+// follows the track's send). Stock edits that word only on its own Drumline
+// (Shift's second encoder, 8d4d6098), saves it in projects and delivers it as
+// the note payload's word 6 (8d5ad73e), which an owned kit's adapter otherwise
+// ignores. 0 in every field is neutral. A field may be signed, two's
+// complement in its bits. A pad the kit has not marked reads neutral, and the
+// SDK clears the fields when it first marks a pad, so a value stock left
+// there plays nothing.
 const u32 kDrumPadWord = 0x14, kDrumPadPayload = 6;
-const u32 kDrumPadFields = 3, kDrumPadShift = 16, kDrumPadBits = 12;
-const u32 kDrumPadMask = 0x7fffu << kDrumPadShift;   // bits 16..30: the fields and the SDK's
+const u32 kDrumPadFields = 4;              // the second Shift row's positions
+const u32 kDrumKitPadFields = 2, kDrumKitPadBits = 9, kDrumPadShift = 16;
+const u32 kDrumSendLow = 25, kDrumSendBits = 3;   // FX I at 25, FX II at 28
+const u32 kDrumPadMask = 0x7fffu << kDrumPadShift;   // bits 16..30
 inline u32 drum_pad_low(u32 field, const u8* bits) {
     u32 low = kDrumPadShift;
     for (u32 i = 0; i < field; ++i) low += bits[i];
     return low;
 }
-inline i32 drum_pad_min(u32 field, const u8* bits, u32 signs) {
-    return (signs >> field & 1u) ? -(1 << (bits[field] - 1)) : 0;
+inline i32 drum_field_min(u32 bits, bool sign) { return sign ? -(1 << (bits - 1)) : 0; }
+inline i32 drum_field_max(u32 bits, bool sign) { return sign ? (1 << (bits - 1)) - 1 : (1 << bits) - 1; }
+inline i32 drum_field_get(i32 word, u32 low, u32 bits, bool sign) {
+    const u32 raw = (static_cast<u32>(word) >> low) & ((1u << bits) - 1u);
+    return sign && (raw >> (bits - 1)) ? static_cast<i32>(raw) - (1 << bits) : static_cast<i32>(raw);
 }
-inline i32 drum_pad_max(u32 field, const u8* bits, u32 signs) {
-    return (signs >> field & 1u) ? (1 << (bits[field] - 1)) - 1 : (1 << bits[field]) - 1;
-}
-inline i32 drum_pad_get(i32 word, u32 field, const u8* bits, u32 signs) {
-    const u32 raw = (static_cast<u32>(word) >> drum_pad_low(field, bits)) & ((1u << bits[field]) - 1u);
-    const bool negative = (signs >> field & 1u) && (raw >> (bits[field] - 1));
-    return negative ? static_cast<i32>(raw) - (1 << bits[field]) : static_cast<i32>(raw);
-}
-inline i32 drum_pad_set(i32 word, u32 field, const u8* bits, i32 value) {
-    const u32 low = drum_pad_low(field, bits), mask = ((1u << bits[field]) - 1u) << low;
+inline i32 drum_field_set(i32 word, u32 low, u32 bits, i32 value) {
+    const u32 mask = ((1u << bits) - 1u) << low;
     return static_cast<i32>((static_cast<u32>(word) & ~mask) | ((static_cast<u32>(value) << low) & mask));
+}
+// A kit pad control by its index, as the adapter decodes it.
+inline i32 drum_pad_get(i32 word, u32 field, const u8* bits, u32 signs) {
+    return drum_field_get(word, drum_pad_low(field, bits), bits[field], (signs >> field & 1u) != 0);
 }
 
 // The note payload's first word: stock's Q31 of the model byte, 6 type + group

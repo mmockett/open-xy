@@ -101,9 +101,9 @@ class DrumPreviewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_definition(definition, 'synth')
 
-    def test_pad_controls_name_up_to_three_fields_in_twelve_bits(self):
+    def test_pad_controls_name_up_to_two_fields_in_nine_bits(self):
         from tooling.definitions import validate_definition
-        fields = [dict(label='FILTER', bits=5, signed=True), dict(label='RES', bits=3), dict(label='SRR', bits=4)]
+        fields = [dict(label='FILTER', bits=5, signed=True), dict(label='SRR', bits=4)]
         definition = self.definition('drum')
         definition['resources'].update(padMix=1, padControls=fields)
         validate_definition(definition, 'drum')
@@ -111,13 +111,14 @@ class DrumPreviewTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             table = adapters.generate_drum_callbacks(folder, [machine]).read_text()
             voice = adapters.generate_voice(folder, machine).read_text()
-        self.assertIn('static const opxy::u8 kit_pad_bits[] = {5, 3, 4};', table)
-        self.assertIn('kit_pad_labels[] = {"FILTER", "RES", "SRR"};', table)
-        self.assertIn('kit_drum_count, 0, nullptr, nullptr, 1, 3, kit_pad_bits, 1, kit_pad_labels, kit_drum_pad_text},', table)
-        self.assertIn('const opxy::u32 kPadCount = 3;', voice)
-        self.assertIn('static const opxy::u8 pad_bits[] = {5, 3, 4};', voice)
+        self.assertIn('static const opxy::u8 kit_pad_bits[] = {5, 4};', table)
+        self.assertIn('kit_pad_labels[] = {"FILTER", "SRR"};', table)
+        self.assertIn('kit_drum_count, 0, nullptr, nullptr, 1, 2, kit_pad_bits, 1, kit_pad_labels, kit_drum_pad_text},', table)
+        self.assertIn('const opxy::u32 kPadCount = 2;', voice)
+        self.assertIn('static const opxy::u8 pad_bits[] = {5, 4};', voice)
         self.assertIn('const opxy::u32 kPadSigns = 1;', voice)
-        bad = ([], fields + [dict(label='SEND', bits=3)], [dict(label='WIDE', bits=9)], [dict(label='A', bits=6), dict(label='B', bits=7)],
+        bad = ([], fields + [dict(label='SEND', bits=3)], [dict(label='WIDE', bits=9), dict(label='B', bits=1)],
+               [dict(label='A', bits=5), dict(label='B', bits=5)], [dict(label='TOO', bits=9, extra=0)],
                [dict(label='one', bits=1, signed=True)], [dict(label='bad_name', bits=2)], [dict(label='NINE CHAR', bits=2)],
                [dict(label='X', bits=2, extra=1)], [dict(label='X', bits=True)], [dict(bits=2)], 'FILTER')
         for value in bad:

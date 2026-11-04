@@ -146,7 +146,7 @@ control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 | `model` | A drum kit's selected key's model. |
 | `pan`, `level` | A [`padMix`](api.md#synthesis-drum-kits) kit's selected key's pan, -100..100 with 0 centred, and its level in whole dB as it plays, -30..0 (SDK 1.10); 0 for other machines. |
 | `line` | The row the encoders edit, 0 the first and 1 the second; on a drum kit, also the Shift row (SDK 1.10). |
-| `pad` | A drum kit's selected key's [pad controls](api.md#synthesis-drum-kits), in declaration order, a signed field negative below 0; 0 when neutral and for other machines (SDK 1.10). |
+| `pad` | A `padMix` kit's selected key's [pad fields](api.md#synthesis-drum-kits): its two pad controls, a signed one negative below 0, then FX I and FX II (0..7, 0 following the track's send); 0 when neutral and for other machines (SDK 1.10). |
 
 A screen that draws its own header (the two-page header) shows the Shift
 controls in its edited row while `shift` is 1, as the stock header does. The
