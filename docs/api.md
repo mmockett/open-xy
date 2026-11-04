@@ -490,7 +490,9 @@ second row Shift edits the key's pad fields: the kit's own pad controls on the
 first two encoders, then FX I and FX II, 0..7, where 0 (`TRK`) follows the
 track's send. Every key of such a kit has the second row, a model with four or
 fewer controls too, whose encoders there are blank. Shift always edits the row
-the encoders are on; the display's `line` says which.
+the encoders are on; the display's `line` says which. A press of any encoder
+switches the row with Shift held too, so Shift and a press reach the second
+row without letting go.
 
 A `padMix` kit may declare up to two small settings of each key's own in
 `resources.padControls` (SDK 1.10), such as a filter and a sample-rate

@@ -433,6 +433,31 @@ int main() {
         engine = 34; key = 53;
     }
 
+    {
+        // A Shift press (stock's Shift-press action, through the hook at
+        // 8c0b2730) switches a padMix kit's row, both ways, a short model's
+        // key too; it never reaches stock's press recorder. Other kits, other
+        // pages and other controllers keep stock's.
+        engine = 39; key = 54; shifted = true;
+        const u32 clicks_before = clicks;
+        shown(0,1,2,3);
+        require(sdk_drum_shift_press(0, 2)); shown(4,5,6,7);
+        require(sdk_drum_shift_press(0, 0)); shown(0,1,2,3);
+        require(!sdk_drum_shift_press(1, 0) && !sdk_drum_shift_press(0, 4));   // another track; no such encoder
+        page = 1;
+        require(!sdk_drum_shift_press(0, 0));
+        page = 0;
+        controller = 0x1234;
+        require(!sdk_drum_shift_press(0, 0));
+        controller = 0x8400dff8;
+        shown(0,1,2,3);
+        engine = 37;   // groups, no padMix: no second Shift row
+        require(!sdk_drum_shift_press(0, 0));
+        shown(0,1,2,3);
+        require(clicks == clicks_before);
+        engine = 34; key = 53; shifted = false;
+    }
+
     ownership = 0;
     require(sdk_drum_edit(53, 0, one, 0) == 1234 && fallback == 1);
     require(!sdk_drum_values(0, &model, raw));

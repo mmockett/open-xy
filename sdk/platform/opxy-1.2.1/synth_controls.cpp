@@ -199,6 +199,29 @@ void sdk_synth_press(u32 encoder) {
     }
 }
 
+// A Shift press never reaches sdk_synth_press: stock's key layer sends a
+// click released while Shift is held to the controller's shifted key handler
+// (8c0b5c90 -> 8c0b5b80 -> vtable +16, 8c0b28a8), which for codes 10..13 runs
+// stock's Shift-press action 8c0b270e (drum_controls_stock.cpp's hook at
+// 8c0b2730 calls this). On a kit with a second Shift row it moves the whole
+// row, as an unshifted press does, so Shift and a press reach the other row.
+// Stock's Shift-press action does nothing for an owned kit (it acts only for
+// the samplers, 2, 3 and 30, and Drumline, 4).
+bool sdk_drum_shift_press(u32 track, u32 encoder) {
+    Track* t;
+    const SynthControls* m;
+    if (track >= kTracks || track != byte(kSelectedTrack) || encoder >= opxy::page_controls) return false;
+    const DrumMachine* drum = sdk_drum_machine(track_engine(track));
+    if (!drum || !drum->second_shift_row() || top_controller_vtable() != kInstrumentController ||
+        word(kInstrumentPage) != 0 || !(m = machine(track, t)))
+        return false;
+    for (u32 i = 0; i < opxy::page_controls; ++i) {
+        const u32 next = m->next[t->slots[i]];
+        if (next < opxy::parameter_slots) t->slots[i] = static_cast<u8>(next);
+    }
+    return true;
+}
+
 // 8d5ad306: stock's encoder step 8d5ad2e8, which plain and lock edits share,
 // asks 8c0b2468(track, index, &scale) for a parameter's step count, or -1 when
 // it is continuous. It then moves scale * count buckets, one per detent (two
