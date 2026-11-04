@@ -22,7 +22,11 @@ namespace {
 i32 scratch[kDrumSends][kDrumSendWords];
 // Stock's stereo sum of the track's voices, which the engine hands the voice
 // loop (8d510be2) and its send loops read (8d511088, 8d5110ca).
-i32* const kTrackSum = reinterpret_cast<i32*>(0x11900000);
+// The address is the immediate of the instructions the hooks replace, which
+// tests/test_drum_send.py decodes from the profile's bytes: 0x11900000, a
+// misread of it, is another stock buffer (set up at 8d4d246a), which put
+// the live input into the sends on padtest-001.
+i32* const kTrackSum = reinterpret_cast<i32*>(0x11903600);
 // The voice just rendered, as the loop adds it into the sum (8d51c7b2).
 const i32* const kVoiceOutput = reinterpret_cast<const i32*>(0x11b01548);
 // The stock voice's machine object, whose method table stock calls (8d51b53e).

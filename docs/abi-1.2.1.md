@@ -945,10 +945,10 @@ Stock mixes a track in the engine block `8d510760`, one instrument track at a
 time. Its voice loop `8d51c708`, called only at `8d510bea`, renders each voice
 into `0x11b01548` (64 interleaved stereo frames, after stock's per-voice pan
 and gain) and adds it with a saturating add into the track's stereo sum at
-`0x11900000` (`8d51c7b0`..`8d51c7d8`). The engine then scales that sum into
-the main mix at a constant gain (`8d511038`), into FX I's bus `0x84ca9940` at a
+`0x11903600` (`8d51c7b0`..`8d51c7d8`). The engine then scales that sum into
+the main mix at a constant gain (`8d511038`), into FX I's bus `0x84caa140` at a
 gain stepped every word (`8d511088`..`8d5110c8`) and into FX II's bus
-`0x84ca9b40` at a constant gain (`8d5110ca`..`8d51110e`); `8d50f594` then runs
+`0x84caa340` at a constant gain (`8d5110ca`..`8d51110e`); `8d50f594` then runs
 send slots 14 and 15 on those buses. The gains come from the track's mixer
 record (`0x84eab39c + 0xe8 * track`) and the sends' dry queries. A track stock
 finds silent (`8d51237a`) skips every bus.
@@ -966,7 +966,7 @@ every hardware loop body and replaying it:
   and from then on every voice of the track goes into that scratch sum at its
   share, a follower or a stock voice unscaled. The voice record's machine
   object (`+0x94`, `8d51b53e`) identifies a kit's voice by its method table.
-- `8d511088` and `8d5110ca`, `P1 = 0x11900000` before FX I's and FX II's
+- `8d511088` and `8d5110ca`, `P1 = 0x11903600` before FX I's and FX II's
   loops: the track's scratch sum for that send when it kept one (the track index
   is the engine's `[FP + 8]`), otherwise stock's address. Only P1 changes.
 

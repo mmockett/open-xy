@@ -5,7 +5,7 @@
 // at a constant gain (8d511038..8d511084), FX I at a gain stepped every word
 // (8d511088..8d5110c8) and FX II at a constant gain (8d5110ca..8d51110e). A
 // skipped track (8d51237a) mixes nothing. The test substitutes host buffers
-// for stock's 0x11900000 and 0x11b01548.
+// for stock's 0x11903600 and 0x11b01548.
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
