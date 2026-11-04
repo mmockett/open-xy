@@ -954,8 +954,9 @@ stock without SDK code. Stock Drumline applies word 7 in its own DSP
 (`11a073f8`, its payload at `[FP - 0x10]`), which an owned kit replaces; a
 `padMix` kit's adapter multiplies the output by word 7 shifted to Q31 when it
 is below unity, and otherwise leaves it, so a stored boost plays at 0 dB. The
-drum profiling workload supplies stock's eight payload words, word 6 neutral
-and word 7 at unity.
+drum profiling workload supplies stock's eight payload words: for the kit's
+own keys word 6 neutral and word 7 at unity, and for every other run each pad
+control at its top and, with `padMix`, a 6 dB cut, the heaviest path.
 
 A `padMix` kit's pad fields live in bits 16..30 of the pad word at `+0x14`:
 its `padControls` packed from bit 16 in declaration order (at most 9 bits),

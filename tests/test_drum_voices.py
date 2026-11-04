@@ -492,6 +492,11 @@ class DrumVoices(unittest.TestCase):
             dict(label='FILTER', bits=5, signed=True), dict(label='SRR', bits=4)])
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_the_profiling_workload_runs_a_pad_mix_kit_at_its_heaviest_pad_settings(self):
+        self.run_adapter(BENCH_ENGINE, BENCH_DRIVER, 4, chokeSameKey=1, padMix=1, padControls=[
+            dict(label='FILTER', bits=5, signed=True), dict(label='SRR', bits=4)])
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_same_key_choke_fades_the_old_voice_and_finished_frees_it(self):
         self.run_adapter(CHOKE_ENGINE, CHOKE_DRIVER, 4, chokeSameKey=1)
 
