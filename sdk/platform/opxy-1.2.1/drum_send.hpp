@@ -17,16 +17,16 @@ namespace opxy { namespace platform {
 // kit's FILTER (5 bits) and SRR (4), then FX I's code in bits 25..27 and FX
 // II's in 28..30. Code 0 follows the track's send exactly, so a pad saved
 // before padSend, or one the kit has not marked, plays as before.
-const u32 kDrumSendPayload = 6, kDrumSendShift = 25, kDrumSendBits = 3, kDrumSendCodes = 8, kDrumSends = 2;
+const u32 kDrumSendPayload = 6, kDrumSendShift = 25, kDrumSendCodeBits = 3, kDrumSendCodes = 8, kDrumSends = 2;
 // Both codes of a payload, FX I's in bits 0..2 and FX II's in 3..5.
 inline u32 drum_send_codes(const i32* payload) {
     return payload && drum_marked_q31(payload[0]) && payload[kDrumSendPayload] > 0
-        ? (static_cast<u32>(payload[kDrumSendPayload]) >> kDrumSendShift) & ((1u << (kDrumSends * kDrumSendBits)) - 1) : 0;
+        ? (static_cast<u32>(payload[kDrumSendPayload]) >> kDrumSendShift) & ((1u << (kDrumSends * kDrumSendCodeBits)) - 1) : 0;
 }
 // One send's code (0 FX I, 1 FX II) of what drum_send_codes gives.
-inline u32 drum_send_code(u32 codes, u32 send) { return (codes >> (send * kDrumSendBits)) & (kDrumSendCodes - 1); }
+inline u32 drum_send_code(u32 codes, u32 send) { return (codes >> (send * kDrumSendCodeBits)) & (kDrumSendCodes - 1); }
 inline i32 drum_send_store(i32 word, u32 send, u32 code) {
-    const u32 low = kDrumSendShift + send * kDrumSendBits, mask = (kDrumSendCodes - 1) << low;
+    const u32 low = kDrumSendShift + send * kDrumSendCodeBits, mask = (kDrumSendCodes - 1) << low;
     return static_cast<i32>((static_cast<u32>(word) & ~mask) | ((code & (kDrumSendCodes - 1)) << low));
 }
 // The share of the track's send each code passes, in Q31: code c of 1..7

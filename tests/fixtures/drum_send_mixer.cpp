@@ -35,7 +35,7 @@ const u32 sdk_drum_send_kit_count = 1;
 
 namespace {
 // FX I's code in bits 0..2, FX II's in 3..5, as drum_send_codes gives them.
-u32 pair(u32 fx1, u32 fx2) { return fx1 | fx2 << kDrumSendBits; }
+u32 pair(u32 fx1, u32 fx2) { return fx1 | fx2 << kDrumSendCodeBits; }
 
 // A stock voice record: its machine object at +0x94 (8d51b53e).
 struct StockVoice { unsigned char bytes[0x94 + sizeof(void*)]; Handle handle; i32 audio[kDrumSendWords]; };
