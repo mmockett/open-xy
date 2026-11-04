@@ -1020,9 +1020,10 @@ loop body and replaying it:
 - `8d511116`, `P0 = [SP + 0x48]` after FX II's loop: adds each own-amount sum
   into its bus at the engine's level for the track (`[FP - 0x68]`, written at
   `8d510d38`), which both send gains are built from (FX I's as
-  level × (0.8x² + 0.2x) of its knob, FX II's as level × knob), so an amount of
-  100 sends what stock sends with the track's knob at full, and the track's
-  mute and level still apply. The level ramps over the block from the
+  level × (0.8x² + 0.2x) of its knob x, FX II's as level × x). A key's amount N
+  goes through the same curve as its send's knob at N (`drum_send_curve`), so it
+  sends what the track's knob at N sends, and the track's mute and level still
+  apply. The level ramps over the block from the
   previous block's, as stock steps FX I's gain.
 
 Stock's loops do the followers' mixing, and the main mix always reads stock's

@@ -35,11 +35,23 @@ inline i32 drum_send_store(i32 word, u32 send, u32 code) {
     const u32 low = kDrumSendShift + send * kDrumSendCodeBits, mask = (kDrumSendCodes - 1) << low;
     return static_cast<i32>((static_cast<u32>(word) & ~mask) | ((code & (kDrumSendCodes - 1)) << low));
 }
-// A key's own send amount, in Q31 of the full send: code c of 1..7 sends
-// (c - 1) / 6, that is 0, 17, 33, 50, 67, 83 and 100 percent. Code 0 (TRK) has none.
-const i32 kDrumSendGains[kDrumSendCodes] = {
+// A key's own send amount: code c of 1..7 is the knob position (c - 1) / 6,
+// shown as 0, 17, 33, 50, 67, 83 and 100, through the same curve stock gives
+// that send's knob, so a key at N sends what the track's knob at N sends. Stock
+// builds FX I's gain as level x (0.8 k^2 + 0.2 k) of its knob k (8d510d7a..8d510daa)
+// and FX II's as level x k (8d510e0a). The positions in Q31:
+const i32 kDrumSendPositions[kDrumSendCodes] = {
     0, 0, 357913941, 715827883, 1073741824, 1431655765, 1789569707, q31::maximum};
-inline i32 drum_send_gain(u32 code) { return kDrumSendGains[code & (kDrumSendCodes - 1)]; }
+// Each send's gain per code, worked with stock's arithmetic (drum_send_curve).
+const i32 kDrumSendGains[kDrumSends][kDrumSendCodes] = {
+    {0, 0, 119304646, 334053011, 644245093, 1049880892, 1550960410, 2147483644},
+    {0, 0, 357913941, 715827883, 1073741824, 1431655765, 1789569707, q31::maximum}};
+// Stock's curve for send `send`'s knob position, as its engine computes it.
+inline i32 drum_send_curve(u32 send, i32 position) {
+    if (send) return position;
+    return q31::add(q31::multiply(q31::multiply(position, position), 1717986918), q31::multiply(position, 429496729));
+}
+inline i32 drum_send_gain(u32 send, u32 code) { return kDrumSendGains[send ? 1 : 0][code & (kDrumSendCodes - 1)]; }
 // The amount a code shows, in percent: 0..100 for codes 1..7 (code 0 shows TRK).
 inline i32 drum_send_percent(u32 code) {
     return code ? static_cast<i32>(((code & (kDrumSendCodes - 1)) - 1) * 100 + 3) / 6 : 0;
@@ -98,7 +110,7 @@ static inline __attribute__((noinline)) void drum_send_ramp(i32* __restrict to, 
 // stock's sum so far (with whatever stock started the sum with) and `own` at
 // silence; from then on a follower goes into `follow`, with stock's saturating
 // add in stock's order, and an own-amount voice into `own` at its amount.
-inline void drum_send_bus(DrumSendBus& bus, u32& own_track, i32* follow, i32* own, u32 track, const i32* sum,
+inline void drum_send_bus(u32 send, DrumSendBus& bus, u32& own_track, i32* follow, i32* own, u32 track, const i32* sum,
                           const i32* voice, u32 code) {
     if (!code) {
         if (bus.track) drum_send_add(follow, voice);
@@ -113,14 +125,14 @@ inline void drum_send_bus(DrumSendBus& bus, u32& own_track, i32* follow, i32* ow
         for (u32 i = 0; i < kDrumSendWords; ++i) own[i] = 0;
         own_track = track + 1;
     }
-    const i32 gain = drum_send_gain(code);
+    const i32 gain = drum_send_gain(send, code);
     if (gain) drum_send_scale(own, voice, gain);
 }
 // Both sends: `follow` and `own` hold a sum for each.
 inline void drum_send_voice(DrumSendState& state, i32 (*follow)[kDrumSendWords], i32 (*own)[kDrumSendWords],
                             u32 track, const i32* sum, const i32* voice, u32 codes) {
     for (u32 s = 0; s < kDrumSends; ++s)
-        drum_send_bus(state.bus[s], state.own[s], follow[s], own[s], track, sum, voice, drum_send_code(codes, s));
+        drum_send_bus(s, state.bus[s], state.own[s], follow[s], own[s], track, sum, voice, drum_send_code(codes, s));
 }
 // What send `s`'s loop reads for `track`: the followers' sum while it is that track's, else stock's.
 inline const i32* drum_send_source(const DrumSendState& state, u32 s, u32 track, const i32* sum) {
