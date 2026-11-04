@@ -77,9 +77,13 @@ struct Input {
     i8 level;
     u8 line;
     u8 reserved;             // 0
+    // A drum kit's selected key's pad controls (resources.padControls, SDK
+    // 1.10), in declaration order, signed fields negative below 0; 0 when
+    // neutral, beyond the declared ones, and for other machines.
+    i8 pad[4];
 };
 const u32 notes_unavailable = 0xffffffffu;
-static_assert(sizeof(Input) == 92 && __builtin_offsetof(Input, pan) == 88 && __builtin_offsetof(Input, level) == 89 &&
+static_assert(sizeof(Input) == 96 && __builtin_offsetof(Input, pad) == 92 && __builtin_offsetof(Input, pan) == 88 && __builtin_offsetof(Input, level) == 89 &&
               __builtin_offsetof(Input, line) == 90 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
               __builtin_offsetof(Input, note_serial) == 24 && __builtin_offsetof(Input, reduced_motion) == 28 &&
               __builtin_offsetof(Input, shown) == 32 && __builtin_offsetof(Input, slots) == 36 &&

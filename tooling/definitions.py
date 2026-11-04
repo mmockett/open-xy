@@ -86,8 +86,11 @@ SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS, 'display')   # display: its o
 EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display')
 # A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose;
 # chokeSameKey 1 for a note to cut the voices still sounding its track's same key; and
-# padMix 1 (SDK 1.10) for Shift to turn each key's stock pan and level.
-DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix')
+# padMix 1 (SDK 1.10) for Shift to turn each key's stock pan and level; and padControls
+# (SDK 1.10, with padMix), up to three small fields of each key's own on Shift's second row.
+DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls')
+# Pad controls share 12 bits of stock's pad word +0x14 (drum_storage.hpp).
+PAD_CONTROL_FIELDS, PAD_CONTROL_BITS = 3, 12
 EFFECT_BUFFER_LIMIT = 524288
 # A synth's optional GUI-side track control (opxy/track_control.hpp): its state.
 CONTROL_FIELDS = ('stateBytes', 'stateAlignment')
@@ -152,7 +155,7 @@ def validate_definition(value, kind):
                'synth': ('trackControl',)}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
-    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl')),
+    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'padControls')),
             'Numeric resource requirements must be integers')
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
@@ -191,6 +194,21 @@ def validate_definition(value, kind):
         require(2 <= resources['modelCount'] <= 64, 'A drum kit has 2..64 models')
         require(resources.get('chokeSameKey', 0) in (0, 1), 'chokeSameKey must be 0 or 1')
         require(resources.get('padMix', 0) in (0, 1), 'padMix must be 0 or 1')
+        if 'padControls' in resources:
+            fields = resources['padControls']
+            require(resources.get('padMix', 0) == 1, 'padControls needs padMix')
+            require(isinstance(fields, list) and 1 <= len(fields) <= PAD_CONTROL_FIELDS,
+                    'padControls lists 1..%d fields' % PAD_CONTROL_FIELDS)
+            for field in fields:
+                require(isinstance(field, dict) and set(field) <= {'label', 'bits', 'signed'} and {'label', 'bits'} <= set(field),
+                        'A pad control has a label, bits and optionally signed')
+                require(isinstance(field['label'], str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 -]{0,7}', field['label']),
+                        'A pad control label is at most eight letters, digits, spaces or hyphens')
+                require(type(field['bits']) is int and 1 <= field['bits'] <= 8, 'A pad control has 1..8 bits')
+                require(type(field.get('signed', False)) is bool and not (field.get('signed') and field['bits'] < 2),
+                        'A signed pad control has at least 2 bits')
+            require(sum(f['bits'] for f in fields) <= PAD_CONTROL_BITS,
+                    'Pad controls share at most %d bits' % PAD_CONTROL_BITS)
         if 'modelGroups' in resources:
             groups = resources['modelGroups']
             require(isinstance(groups, list) and 2 <= len(groups) <= 16, 'modelGroups lists 2..16 groups')

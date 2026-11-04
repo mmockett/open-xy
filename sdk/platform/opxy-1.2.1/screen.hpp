@@ -147,6 +147,7 @@ struct Controls {
     u8 choices[4];   // that row's choices, or a drum kit's Shift controls' (draw::Input::choices)
     i32 pan, level;  // a padMix kit's selected key's pan (-100..100) and level (dB, -30..0)
     u32 line;        // the row the encoders and Shift edit: 0 the first, 1 the second
+    i32 pads[platform::kDrumPadFields];  // a kit's selected key's pad controls (padControls)
 };
 
 // Fills controls.slots and values from the stock parameter vector,
@@ -217,6 +218,7 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     controls.model = controls.pad = 0;
     controls.pan = controls.level = 0;
     controls.line = 0;
+    for (u32 i = 0; i < platform::kDrumPadFields; ++i) controls.pads[i] = 0;
     for (u32 i = 0; i < 4; ++i) controls.choices[i] = 0;
     if (send_controls(o, controls)) return true;
     sdk_synth_shown(controls.track, controls.shown);
@@ -242,6 +244,7 @@ inline bool refresh_controls(Base* o, Controls& controls) {
             controls.pan = sdk_drum_pan(controls.track);
             controls.level = sdk_drum_level(controls.track);
         }
+        if (drum->pad_count) sdk_drum_pad_values(controls.track, controls.pads);
     }
     controls.pad = drum ? sdk_drum_selected_pad(controls.track) : 0;
     if (drum) {
@@ -291,7 +294,17 @@ inline bool refresh_controls(Base* o, Controls& controls) {
                 titles[i] = "PAN"; drum_number(values[i], controls.pan, ""); break;
             case platform::DrumMachine::kShiftLevel:
                 titles[i] = "LEVEL"; drum_number(values[i], controls.level, "dB"); break;
-            default: break;
+            case platform::DrumMachine::kShiftNone: break;
+            default: {
+                // A pad control: its label, and the kit's caption or the number.
+                const u32 field = drum->shift(i, controls.line != 0) - platform::DrumMachine::kShiftPad;
+                if (field >= drum->pad_count) break;
+                titles[i] = drum->pad_labels[field];
+                if (!drum->pad_text || !drum->pad_text(field, controls.pads[field], values[i]))
+                    drum_number(values[i], controls.pads[field], "");
+                values[i][15] = 0;
+                break;
+            }
             }
         }
         for (u32 i = 0; i < page_controls; ++i) {

@@ -29,7 +29,8 @@ opxy::benchmark::Stats @PREFIX@_benchmark(opxy::u32 run) {
     // kit's own run saves each key at its defaults, so it plays what the kit starts with.
     const u32 saved = run == 0 ? 24 : 1;
     // Stock's eight payload words: the mark, the four stored words, pan (word 5,
-    // applied by stock's renderer, not here) and the pad's level at 0 dB (word 7).
+    // applied by stock's renderer, not here), pad controls neutral (word 6) and
+    // the pad's level at 0 dB (word 7).
     i32 payloads[24][8] = {};
     for (u32 k = 0; k < saved; ++k) {
         u8 stored[8];

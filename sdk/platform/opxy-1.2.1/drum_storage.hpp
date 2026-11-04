@@ -67,6 +67,39 @@ inline i32 drum_level(const void* record) {
     return db < kDrumLevelFloor ? kDrumLevelFloor : db > kDrumLevelCeiling ? kDrumLevelCeiling : db;
 }
 
+// A kit's pad controls (resources.padControls, SDK 1.10): up to three small
+// fields of the key's own, packed from bit 16 of stock's pad word +0x14 in
+// declaration order, at most 12 bits; bits 28..30 are kept for the SDK's own.
+// Stock edits that word only on its own Drumline (Shift's second encoder,
+// 8d4d6098), saves it in projects and delivers it as the note payload's word 6
+// (8d5ad73e), which an owned kit's adapter otherwise ignores. 0 in every field
+// is neutral. A field may be signed, two's complement in its bits. A pad the
+// kit has not marked reads neutral, and the SDK clears the fields when it first
+// marks a pad, so a value stock left there plays nothing.
+const u32 kDrumPadWord = 0x14, kDrumPadPayload = 6;
+const u32 kDrumPadFields = 3, kDrumPadShift = 16, kDrumPadBits = 12;
+const u32 kDrumPadMask = 0x7fffu << kDrumPadShift;   // bits 16..30: the fields and the SDK's
+inline u32 drum_pad_low(u32 field, const u8* bits) {
+    u32 low = kDrumPadShift;
+    for (u32 i = 0; i < field; ++i) low += bits[i];
+    return low;
+}
+inline i32 drum_pad_min(u32 field, const u8* bits, u32 signs) {
+    return (signs >> field & 1u) ? -(1 << (bits[field] - 1)) : 0;
+}
+inline i32 drum_pad_max(u32 field, const u8* bits, u32 signs) {
+    return (signs >> field & 1u) ? (1 << (bits[field] - 1)) - 1 : (1 << bits[field]) - 1;
+}
+inline i32 drum_pad_get(i32 word, u32 field, const u8* bits, u32 signs) {
+    const u32 raw = (static_cast<u32>(word) >> drum_pad_low(field, bits)) & ((1u << bits[field]) - 1u);
+    const bool negative = (signs >> field & 1u) && (raw >> (bits[field] - 1));
+    return negative ? static_cast<i32>(raw) - (1 << bits[field]) : static_cast<i32>(raw);
+}
+inline i32 drum_pad_set(i32 word, u32 field, const u8* bits, i32 value) {
+    const u32 low = drum_pad_low(field, bits), mask = ((1u << bits[field]) - 1u) << low;
+    return static_cast<i32>((static_cast<u32>(word) & ~mask) | ((static_cast<u32>(value) << low) & mask));
+}
+
 // The note payload's first word: stock's Q31 of the model byte, 6 type + group
 // over 66 bins (8d5ad6ec). Type 7 is bins 42..47.
 inline bool drum_marked_q31(i32 word) {

@@ -21,6 +21,10 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     if (delta < -127) delta = -127;
     unsigned char* record = static_cast<unsigned char*>(region);
     u8 mark = drum_mark(record[24]);
+    i32* pad_word = static_cast<i32*>(region) + kDrumPadWord / 4;
+    // A kit with pad controls clears them when it first marks a pad: stock may
+    // have left its own value in that word.
+    i32 pad = machine->pad_count && !drum_marked(record[24]) ? *pad_word & ~static_cast<i32>(kDrumPadMask) : *pad_word;
     // Shift's encoders (stock's indices 4..7) choose what DrumMachine::shift
     // names for their position and the row the encoders are on.
     u8 shown[page_controls];
@@ -65,6 +69,17 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
         if (next > last) next = last;
         if (next == model) return 0;
         model = static_cast<u8>(next);
+    } else if (choice >= DrumMachine::kShiftPad && choice < DrumMachine::kShiftPad + machine->pad_count) {
+        // One of the key's pad controls: one step a detent within its bits.
+        const u32 field = choice - DrumMachine::kShiftPad;
+        const i32 now = drum_marked(record[24]) ? drum_pad_get(pad, field, machine->pad_bits, machine->pad_signs) : 0;
+        i32 next = now + delta;
+        const i32 low = drum_pad_min(field, machine->pad_bits, machine->pad_signs);
+        const i32 high = drum_pad_max(field, machine->pad_bits, machine->pad_signs);
+        if (next < low) next = low;
+        if (next > high) next = high;
+        if (next == now) return 0;
+        pad = drum_pad_set(pad, field, machine->pad_bits, next);
     } else if (choice == DrumMachine::kShiftChoke) {
         const i32 now = static_cast<i32>(drum_choke(record[24]));
         i32 next = now + delta;
@@ -87,6 +102,7 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     }
     if (!drum_pack(model, controls, static_cast<i32*>(region) + 1, drum_codec(machine->model_count, machine->count))) return 0;
     record[24] = mark;
+    *pad_word = pad;
     stock<void()>(0x8d585ee8)();
     stock<void(u32)>(0x8d4d5f18)(key);
     return 0;

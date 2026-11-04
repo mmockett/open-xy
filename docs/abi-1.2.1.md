@@ -954,7 +954,20 @@ stock without SDK code. Stock Drumline applies word 7 in its own DSP
 (`11a073f8`, its payload at `[FP - 0x10]`), which an owned kit replaces; a
 `padMix` kit's adapter multiplies the output by word 7 shifted to Q31 when it
 is below unity, and otherwise leaves it, so a stored boost plays at 0 dB. The
-drum profiling workload supplies stock's eight payload words, word 7 at unity.
+drum profiling workload supplies stock's eight payload words, word 6 neutral
+and word 7 at unity.
+
+A kit's `padControls` live in bits 16..27 of the pad word at `+0x14`, packed
+in declaration order; bits 28..30 are kept for the SDK and bit 31 and the low
+half stay stock's. Stock edits that word only on its own Drumline (Shift's
+second encoder, `8d4d6098`, a Q31 value in 100 steps through `8d4d6cc8`), so a
+pad stock wrote can hold any bits there: the kit reads them only on a marked
+pad, and its first edit of an unmarked pad clears bits 16..30. Stock's payload
+builder delivers the word as payload word 6, `max(word, flag)` with a 0 or 1
+flag (`8d5ad738`), which the adapter decodes for a marked pad. Pad copy and
+paste copy the whole record. Whether stock's preset writer exports this word,
+and how, is not yet traced; the fields stay above bit 15 so a `>> 16` export
+would keep them.
 
 ## Note players
 

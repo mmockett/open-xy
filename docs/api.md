@@ -491,6 +491,27 @@ such a kit has a second row, a model with four or fewer controls too, whose
 encoders there are blank. Shift therefore always edits the row the encoders
 are on; the display's `line` says which.
 
+A `padMix` kit may also declare up to three small settings of each key's own
+in `resources.padControls` (SDK 1.10), such as a filter, its resonance and a
+sample-rate reduction: a list of `{"label": "FILTER", "bits": 5, "signed":
+true}`, each with a label of at most eight letters, digits, spaces or hyphens,
+1..8 bits (`signed`, at least 2, is two's complement, so the field runs
+-16..15 in five bits), together at most 12 bits. They sit on Shift's second row
+after the choke group (encoders 2..4), one step a detent, and every key has
+that row. 0 is neutral in every field, and a key the kit has never stored
+reads 0. They are kept in a stock pad word that stock saves with the project,
+copies with a pad and keeps through the kit's own edits. Before every render
+the adapter passes the played key's values to
+
+```cpp
+void drum_pad(Voice&, Shared&, opxy::u32 owner, const opxy::i32* values);   // optional; one per declared field
+bool pad_control_text(opxy::u32 field, opxy::i32 value, char* text);        // optional; at most 15 characters
+```
+
+in the machine namespace; `pad_control_text` captions a value for the stock
+header (without it, or when it returns false, the number shows). The display's
+`pad` holds the selected key's values. A kit's own header captions them itself.
+
 In the machine namespace, declare these callbacks in `core.h` and implement
 them alongside the engine:
 
@@ -615,6 +636,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | --- | --- | --- | --- |
 | `stereoOutput` | 0 or 1 | Output is 64 interleaved left/right frames | |
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
+| `padControls` | Up to three `{label, bits, signed}` fields, 12 bits in all; needs `padMix` | Each key's own small settings on Shift's second row ([drum kits](#synthesis-drum-kits)) | `drum_pad`, `pad_control_text` |
 | `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift turns each key's stock pan and level; with model groups, the choke group moves to Shift's second row ([drum kits](#synthesis-drum-kits)) | |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |

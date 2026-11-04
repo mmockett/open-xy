@@ -20,6 +20,14 @@ struct DrumMachine {
     // key's stock pan and level, and a kit with groups takes its choke group to
     // Shift's second row.
     u32 pad_mix;
+    // resources.padControls (SDK 1.10): the key's own small fields, on Shift's
+    // second row after the choke group, each with its bits, a signed mask, a
+    // label and the kit's caption for a value (null: the number).
+    u32 pad_count;
+    const u8* pad_bits;
+    u32 pad_signs;
+    const char* const* pad_labels;
+    bool (*pad_text)(u32 field, i32 value, char* text);
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
     // A model's group (0 without groups) and the group's first model.
     u32 group(u32 model) const {
@@ -38,15 +46,19 @@ struct DrumMachine {
     // with padMix, the group, the model, pan and level on the first row and
     // the choke group on the second. A kit without groups: the model and the
     // choke group, then (padMix) pan and level, on either row.
-    enum Shift { kShiftNone, kShiftGroup, kShiftModel, kShiftChoke, kShiftPan, kShiftLevel };
-    // A padMix kit with groups has a second Shift row: the choke group, and
-    // positions 1..3 free for more of the key's own settings.
-    bool second_shift_row() const { return pad_mix && group_count; }
+    enum Shift { kShiftNone, kShiftGroup, kShiftModel, kShiftChoke, kShiftPan, kShiftLevel,
+                 kShiftPad, kShiftPad1, kShiftPad2 };   // kShiftPad + i: pad control i
+    // A second Shift row: the choke group first in a padMix kit with groups,
+    // then the kit's pad controls on positions 1..3.
+    bool second_shift_row() const { return (pad_mix && group_count) || pad_count; }
     // No tables: an inline function's statics would be defined in every
     // translation unit that uses it.
     Shift shift(u32 position, bool second) const {
         if (position >= 4) return kShiftNone;
-        if (pad_mix && group_count && second) return position == 0 ? kShiftChoke : kShiftNone;
+        if (second && second_shift_row()) {
+            if (position == 0) return pad_mix && group_count ? kShiftChoke : kShiftNone;
+            return position - 1 < pad_count ? static_cast<Shift>(kShiftPad + position - 1) : kShiftNone;
+        }
         if (group_count && position < 2) return position == 0 ? kShiftGroup : kShiftModel;
         if (!group_count && position < 2) return position == 0 ? kShiftModel : kShiftChoke;
         if (pad_mix) return position == 2 ? kShiftPan : kShiftLevel;
@@ -82,6 +94,9 @@ opxy::u32 sdk_drum_choke_choice(opxy::u32 track) __asm__("sdk_drum_choke_choice"
 // dB as a padMix kit plays it, -30..0; 0 when the track is not an owned kit.
 opxy::i32 sdk_drum_pan(opxy::u32 track) __asm__("sdk_drum_pan");
 opxy::i32 sdk_drum_level(opxy::u32 track) __asm__("sdk_drum_level");
+// The selected key's pad controls (resources.padControls), each 0 when the key
+// is not marked; returns their count.
+opxy::u32 sdk_drum_pad_values(opxy::u32 track, opxy::i32* values) __asm__("sdk_drum_pad_values");
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine)
     __asm__("sdk_drum_edit");
 }

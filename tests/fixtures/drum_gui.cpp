@@ -62,6 +62,9 @@ extern "C" {
 // Engine 37 groups its five models as two and three; engine 38 has 33, so it
 // stores its keys in the prefix code.
 static const opxy::u8 group_sizes[] = {2, 3};
+static const opxy::u8 pad_bits[] = {5, 3, 4};
+static const char* const pad_labels[] = {"FILTER", "RES", "SRR"};
+static bool pad_text(opxy::u32, opxy::i32, char*) { return false; }
 static const char* const group_names[] = {"ONE", "TWO"};
 const opxy::platform::DrumMachine sdk_drum_machines[] = {
     {reinterpret_cast<const char*>(34), ready, 2, defaults, label, name, count},
@@ -69,17 +72,21 @@ const opxy::platform::DrumMachine sdk_drum_machines[] = {
     {reinterpret_cast<const char*>(38), ready, 33, defaults, label, name, count},
     // padMix: engine 39 with groups, engine 40 without.
     {reinterpret_cast<const char*>(39), ready, 5, defaults, label, name, count, 2, group_sizes, group_names, 1},
-    {reinterpret_cast<const char*>(40), ready, 2, defaults, label, name, count, 0, nullptr, nullptr, 1}
+    {reinterpret_cast<const char*>(40), ready, 2, defaults, label, name, count, 0, nullptr, nullptr, 1},
+    // padMix with groups and three pad controls: FILTER (5 bits, signed), RES (3), SRR (4).
+    {reinterpret_cast<const char*>(41), ready, 5, defaults, label, name, count, 2, group_sizes, group_names, 1,
+     3, pad_bits, 1, pad_labels, pad_text}
 };
-const opxy::u32 sdk_drum_machine_count = 5;
+const opxy::u32 sdk_drum_machine_count = 6;
 const opxy::platform::SynthControls sdk_synth_controls[] = {
     {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(37), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(38), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(39), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
-    {reinterpret_cast<const char*>(40), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true}
+    {reinterpret_cast<const char*>(40), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
+    {reinterpret_cast<const char*>(41), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true}
 };
-const opxy::u32 sdk_synth_control_count = 5;
+const opxy::u32 sdk_synth_control_count = 6;
 }
 
 opxy::platform::Address opxy::platform::host_stock_address(Address address) {
@@ -346,6 +353,63 @@ int main() {
         first[0x1e] = first[0x1d] = 0;
         engine = 34; key = 53; shifted = false;
         require(sdk_drum_pan(8) == 0 && sdk_drum_level(8) == 0);   // no instrument track
+    }
+
+    {
+        // Pad controls: the second Shift row's encoders 2..4, packed from bit 16
+        // of the pad word +0x14 (FILTER 16..20, RES 21..23, SRR 24..27). An
+        // unmarked pad reads neutral whatever stock left there, and its first
+        // edit clears the fields; bits 28..30 and stock's low half stay.
+        engine = 41; key = 57; shifted = true;
+        const DrumMachine* kit = sdk_drum_machine(41);
+        require(kit->second_shift_row());
+        require(kit->shift(0, true) == DrumMachine::kShiftChoke && kit->shift(1, true) == DrumMachine::kShiftPad &&
+                kit->shift(2, true) == DrumMachine::kShiftPad + 1 && kit->shift(3, true) == DrumMachine::kShiftPad + 2);
+        require(kit->shift(2, false) == DrumMachine::kShiftPan && kit->shift(3, false) == DrumMachine::kShiftLevel);
+        i32* word = regions[4] + 5;
+        u8* pad = reinterpret_cast<u8*>(regions[4]);
+        require(!drum_marked(pad[24]));
+        *word = 0x7a5a1234;   // a value stock left: bit 31 clear, its fields nonzero
+        i32 values[3] = {9, 9, 9};
+        require(sdk_drum_pad_values(0, values) == 3 && !values[0] && !values[1] && !values[2]);
+        shifted = false;
+        sdk_synth_press(0); ++presses; shown(4,5,6,7);
+        shifted = true;
+        const u32 left[3] = {0, static_cast<u32>(-3), 0}, up[3] = {0, 1, 0}, far[3] = {0, 100, 0}, back[3] = {0, static_cast<u32>(-100), 0};
+        u32 before = publications;
+        sdk_drum_edit(57, 5, left, 0);   // FILTER three steps low-pass
+        require(drum_marked(pad[24]) && publications == before + 1);
+        require((static_cast<u32>(*word) & kDrumPadMask) == ((32u - 3u) << 16) && (*word & 0xffff) == 0x1234);
+        require(sdk_drum_pad_values(0, values) == 3 && values[0] == -3 && !values[1] && !values[2]);
+        sdk_drum_edit(57, 5, back, 0);
+        require(sdk_drum_pad_values(0, values) && values[0] == -16);
+        sdk_drum_edit(57, 5, far, 0);
+        require(sdk_drum_pad_values(0, values) && values[0] == 15);
+        sdk_drum_edit(57, 6, far, 0);
+        sdk_drum_edit(57, 7, far, 0);
+        require(sdk_drum_pad_values(0, values) && values[0] == 15 && values[1] == 7 && values[2] == 15);
+        before = publications;
+        sdk_drum_edit(57, 7, up, 0);     // the last step is the limit
+        require(publications == before);
+        // Bits 28..30 are the SDK's: an edit keeps them.
+        *word |= 5 << 28;
+        sdk_drum_edit(57, 6, left, 0);
+        require(sdk_drum_pad_values(0, values) && values[1] == 4 && ((static_cast<u32>(*word) >> 28) & 7) == 5);
+        // A project keeps the whole record; a preset that stores the word's top
+        // half (>> 16, restored << 16) keeps every field too.
+        const i32 restored = static_cast<i32>((static_cast<u32>(*word) >> 16) << 16);
+        for (u32 f = 0; f < 3; ++f)
+            require(drum_pad_get(restored, f, pad_bits, 1) == drum_pad_get(*word, f, pad_bits, 1));
+        // The controls never touch the stored words or the choke group.
+        u8 m, v[8];
+        require(sdk_drum_values(0, &m, v));
+        // Another kit's edits leave the word alone.
+        engine = 37; key = 57;
+        const i32 kept = *word;
+        sdk_drum_edit(57, 6, up, 0);
+        require(*word == kept);   // another engine's track starts on its first row again
+        shifted = false;
+        engine = 34; key = 53;
     }
 
     ownership = 0;
