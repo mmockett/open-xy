@@ -658,6 +658,36 @@ Kits use the same fixed shared-state and voice-pool rules as synths. Their
 code and state are linked once per machine, shared across tracks; voices
 still require independent state. Machine code and model data need no file loading when notes or patterns change.
 
+### Stock Drumline's second Shift row
+
+The build option `drumlineRow2` ([build options](build.md#3-add-your-machine))
+gives stock's own Drumline (engine 4) the second Shift row a `padMix` kit like
+MD KIT has. It is off by default: it changes the stock engine on every Drumline
+track of the firmware, and no machine declares it.
+
+- **Shift's second row.** Shift and a press of the second, third or fourth
+  encoder switch the Shift row; Shift and a press of the first still cycle the
+  play mode. Row 1 is stock's: TYPE, RANDOM, PAN, VOLUME. Row 2 holds the
+  selected key's FILTER, SRR, FX I and FX II, as MD KIT's row 2:
+  - FILTER, -16..15: low-pass below 0 (`L150` .. `L8.0k`), `OPEN` at 0,
+    high-pass above (`H50` .. `H4.0k`), MD KIT's filter and captions;
+  - SRR (`OFF`, `22k` … `689`): a sample-and-hold of 2 to 64 samples;
+  - FX I and FX II: `TRK`, which follows the track's send, or the key's own
+    amount 0..100, as a `padSend` key's.
+
+  The row is kept per track. SRR and then FILTER run on the voice after its
+  level and envelope, before its pan; at 0 the voice is stock's, bit for bit.
+- **Per hit.** Each voice keeps its key's settings from its first block: a
+  later hit or edit of the same key does not reach a voice already sounding.
+- **No step locks yet.** M3's filter and envelope act on Drumline, so the
+  option leaves every lockable word to stock: with a step held, Shift and a
+  turn do what stock does. Per-hit locks of the Shift settings wait for the
+  SDK's handle-based lock storage.
+- **Saved.** The settings live in each pad, saved with the project and copied
+  with the pad and the pattern. Stock's Drumline presets do not keep them. A
+  project saved with them opens on any other firmware as a stock Drumline
+  project, the settings ignored.
+
 ## Sample engines
 
 [sample_engine.hpp](../sdk/include/opxy/sample_engine.hpp) defines the sample

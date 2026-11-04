@@ -13,8 +13,13 @@
 // restored without publishing, PAN's 38 among them, reaches the audio side
 // before the note. Every other caller of the builder (the per-key editor and
 // its previews) publishes the key's own values.
+//
+// With the build option drumlineRow2 the same two hooks serve stock Drumline
+// (drumline.hpp): every publication of a Drumline pad carries its row-2
+// fields, and a note's is marked for the step locks still to come.
 #include "drum_locks.hpp"
 #include "drum_lock_store.hpp"
+#include "drumline.hpp"
 #include "drum_values.hpp"
 #include "stock.hpp"
 
@@ -32,7 +37,7 @@ using namespace opxy::platform;
 
 // The note the builder is filling, while it is.
 const u32 kNoTrack = 0xffffffffu;
-u32 note_track = kNoTrack, note_key, note_handle;
+u32 note_track = kNoTrack, note_key, note_handle, note_line = kNoTrack;
 const DrumMachine* note_kit;
 
 i32 stock_gain(i32 db) { return stock<i32(i32)>(0x8d5ad604)(db); }
@@ -63,18 +68,21 @@ u32 sdk_drum_lock_note(u32 project, u32 track, u32 key, u32 engine, u32 a, u32 b
     note_track = note_kit ? track : kNoTrack;
     note_key = key;
     note_handle = note_kit ? drum_lock_store_take(track) : 0;
+    note_line = drumline_track(track) ? track : kNoTrack;
     const u32 result = stock<u32(u32, u32, u32, u32, u32, u32, u32)>(0x8d5ad660)(project, track, key, engine, a, b, c);
-    note_track = kNoTrack;
+    note_track = note_line = kNoTrack;
     return result;
 }
 
-// 8d5ad776: the builder's one publication of the payload it filled.
+// 8d5ad776: the builder's one publication of the payload it filled. `kind` is
+// the pad's slot, as the region lookup 8d58926c gave it (8d5ad766).
 u32 sdk_drum_lock_publish(u32 project, u32 track, u32 kind, i32* payload) {
     if (payload && note_kit && track == note_track) {
         stock<void(u32, u32)>(0x8d5acb9c)(project, track);
         fold(*note_kit, track, note_key, payload);
     }
-    note_track = kNoTrack;
+    if (payload && drumline_track(track)) sdk_drumline->publish(track, kind, payload, track == note_line);
+    note_track = note_line = kNoTrack;
     return stock<u32(u32, u32, u32, i32*)>(0x8d5ad194)(project, track, kind, payload);
 }
 
