@@ -478,8 +478,8 @@ fourth turns nothing.
 
 With `"padMix": 1` in `resources` (SDK 1.10; 0 or 1, omitted means 0), Shift
 gives each key the settings of a mixer channel. On the encoders' first row it
-chooses the model (MACHINE: every model in turn, a kit with groups naming the
-group too, as `TRX BD`), the choke group (CHOKE), and the key's own pan (PAN)
+chooses the model (MACHINE: every model in turn; in a kit with groups the
+cell's title is the model's group, `TRX` over `BD`), the choke group (CHOKE), and the key's own pan (PAN)
 and level (LEVEL), as on stock Drumline: pan -100..100 with 0 centred, moving
 faster on a fast turn as stock's does, and level in whole dB, -30..0, one a
 detent, shown as `-6dB`. Pan and level are stock's own pad fields, so projects

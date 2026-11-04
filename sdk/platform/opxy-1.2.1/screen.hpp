@@ -287,19 +287,10 @@ inline bool refresh_controls(Base* o, Controls& controls) {
             case platform::DrumMachine::kShiftGroup:
                 titles[i] = "KIT"; copy_text(values[i], drum->group_names[drum->group(model)]); break;
             case platform::DrumMachine::kShiftModel:
-                // A padMix kit with groups scrolls every model: its group names it too, as "TRX BD".
-                titles[i] = "MACHINE";
-                if (drum->pad_mix && drum->group_count) {
-                    copy_text(values[i], drum->group_names[drum->group(model)]);
-                    u32 n = 0;
-                    while (values[i][n]) ++n;
-                    if (n < 14) { values[i][n++] = ' '; values[i][n] = 0; }
-                    const char* name = drum->model_name(model);
-                    for (u32 c = 0; name[c] && n < 15; ++c) values[i][n++] = name[c];
-                    values[i][n] = 0;
-                } else {
-                    copy_text(values[i], drum->model_name(model));
-                }
+                // A padMix kit with groups scrolls every model, its title the
+                // model's group: "TRX" over "BD". Both words do not fit a value.
+                titles[i] = drum->pad_mix && drum->group_count ? drum->group_names[drum->group(model)] : "MACHINE";
+                copy_text(values[i], drum->model_name(model));
                 break;
             case platform::DrumMachine::kShiftChoke:
                 titles[i] = "CHOKE"; copy_text(values[i], sdk_drum_choke(controls.track)); break;
