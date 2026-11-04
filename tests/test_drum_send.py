@@ -122,7 +122,7 @@ class DrumSend(unittest.TestCase):
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_the_hooks_keep_stock_mixing_and_route_each_keys_share(self):
         source = (PLATFORM / 'drum_send.cpp').read_text(encoding='utf-8')
-        for stock, host in (('reinterpret_cast<i32*>(0x11900000)', 'host_sum'),
+        for stock, host in (('reinterpret_cast<i32*>(0x11903600)', 'host_sum'),
                             ('reinterpret_cast<const i32*>(0x11b01548)', 'host_voice')):
             self.assertEqual(source.count(stock), 1, stock)
             source = source.replace(stock, host)
@@ -181,7 +181,31 @@ class DrumSend(unittest.TestCase):
         # Each stub replays the instruction it replaces: the loop's call, P2's and P1's loads.
         self.assertIn('P0.H = 0x8d51; P0.L = 0xc708;\n    JUMP (P0);', stubs)
         self.assertIn('P2.H = 0x11b0; P2.L = 0x1548;', stubs)
-        self.assertIn('P1.H = 0x1190; P1.L = 0x0000;', stubs)
+        self.assertIn('P1.H = 0x1190; P1.L = 0x3600;', stubs)
+
+    def test_each_stub_replays_the_immediate_its_site_held(self):
+        # padtest-001 replayed P1 = 0x11900000 where stock loads 0x11903600 (a decimal
+        # misread), so every send read another buffer. Decode the reviewed bytes
+        # instead of trusting a disassembler's numbers: Blackfin+ `reg = imm32` is
+        # 0xdaNN (NN the register: 0..7 R0..R7, 8..13 P0..P5), then the high and low halves.
+        names = ['R%d' % i for i in range(8)] + ['P%d' % i for i in range(6)]
+        stubs = (PLATFORM / 'drum_send_hooks.s').read_text(encoding='utf-8')
+        source = (PLATFORM / 'drum_send.cpp').read_text(encoding='utf-8')
+        loads = {}
+        for address, (symbol, before) in SITES.items():
+            words = [int.from_bytes(bytes.fromhex(before)[i:i + 2], 'little') for i in range(0, len(before) // 2, 2)]
+            if words[0] & 0xff00 != 0xda00:
+                continue
+            register, value = names[words[0] & 0xff], words[1] << 16 | words[2]
+            loads[address] = value
+            body = stubs[stubs.index(symbol + ':\n'):]
+            body = body[:body.index('.size ' + symbol)]
+            self.assertIn('%s.H = 0x%04x; %s.L = 0x%04x;' % (register, value >> 16, register, value & 0xffff), body,
+                          '%s must replay %s = 0x%08x' % (symbol, register, value))
+        self.assertEqual(loads, {'0x8d51c7b2': 0x11b01548, '0x8d511088': 0x11903600, '0x8d5110ca': 0x11903600})
+        # The C++ side reads the same two stock buffers.
+        self.assertIn('reinterpret_cast<i32*>(0x%08x)' % loads['0x8d511088'], source)
+        self.assertIn('reinterpret_cast<const i32*>(0x%08x)' % loads['0x8d51c7b2'], source)
 
     def test_the_send_table_names_kits_that_declare_pad_send(self):
         plain = kit()
