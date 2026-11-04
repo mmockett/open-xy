@@ -203,6 +203,11 @@ class DrumSend(unittest.TestCase):
             self.assertIn('%s.H = 0x%04x; %s.L = 0x%04x;' % (register, value >> 16, register, value & 0xffff), body,
                           '%s must replay %s = 0x%08x' % (symbol, register, value))
         self.assertEqual(loads, {'0x8d51c7b2': 0x11b01548, '0x8d511088': 0x11903600, '0x8d5110ca': 0x11903600})
+        # The track hook replaces a relative CALL and must jump to its target.
+        from tooling.firmware import decode_branch
+        target, call = decode_branch(0x8d510bea, bytes.fromhex(SITES['0x8d510bea'][1]))
+        self.assertTrue(call)
+        self.assertIn('P0.H = 0x%04x; P0.L = 0x%04x;\n    JUMP (P0);' % (target >> 16, target & 0xffff), stubs)
         # The C++ side reads the same two stock buffers.
         self.assertIn('reinterpret_cast<i32*>(0x%08x)' % loads['0x8d511088'], source)
         self.assertIn('reinterpret_cast<const i32*>(0x%08x)' % loads['0x8d51c7b2'], source)
