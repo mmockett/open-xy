@@ -107,7 +107,7 @@ void expected(i32* followers, i32* owned, const i32* start, const StockVoice* vo
         for (u32 v = 0; v < count; ++v) {
             const u32 code = drum_send_code(voices[v].handle.vtable == kit_table ? voices[v].handle.codes : 0, send);
             if (!code) f += voices[v].audio[i];
-            else o += times(kDrumSendGains[code], voices[v].audio[i]);
+            else o += times(kDrumSendGains[send][code], voices[v].audio[i]);
         }
         CHECK(f > -(int64_t(1) << 31) && f < (int64_t(1) << 31) && o > -(int64_t(1) << 31) && o < (int64_t(1) << 31));
         followers[i] = static_cast<i32>(f);
@@ -159,8 +159,8 @@ void own_amounts_ignore_the_track_knob() {
     const Gains off = {0x50000000, 0, 0, 0, level};
     mix(buses, 3, voices, 3, start, off, true, false);
     for (u32 i = 0; i < kDrumSendWords; ++i) {
-        const i32 snare = q31::multiply(level, q31::multiply(q31::maximum, voices[0].audio[i]));
-        CHECK(buses.fx1[i] == snare && buses.fx2[i] == snare);
+        CHECK(buses.fx1[i] == q31::multiply(level, q31::multiply(kDrumSendGains[0][7], voices[0].audio[i])));
+        CHECK(buses.fx2[i] == q31::multiply(level, q31::multiply(q31::maximum, voices[0].audio[i])));
     }
     // The main mix is stock's: every voice, dry or wet.
     for (u32 i = 0; i < kDrumSendWords; ++i)
@@ -214,6 +214,41 @@ void mixed_settings_route_each_voice() {
     std::memset(&buses, 0, sizeof buses);
     mix(buses, 6, voices, 2, start, g, true, false);
     CHECK(buses.fx2[9] == q31::multiply(g.fx2, voices[1].audio[9]));
+}
+
+// A key at N sends what the track's knob at N sends, on both sends and at
+// several levels: one block of a TRK key with the track's knobs at N (stock's
+// gains, built as its engine builds them from the level and the knob) against
+// the same voice set to N with the knobs at 0. Rounding order differs (the
+// key's amount is applied before the level), so they agree within 2 LSB.
+void own_amount_matches_the_knob() {
+    static StockVoice voice;
+    static i32 start[kDrumSendWords];
+    static Buses knob, own;
+    std::memset(start, 0, sizeof start);
+    const i32 levels[] = {q31::maximum, 0x5a827999, 0x40000000, 0x16a09e66};
+    for (u32 l = 0; l < 4; ++l)
+        for (u32 code = 1; code < kDrumSendCodes; ++code) {
+            fill(voice.audio, 1 << (code % 3));
+            const i32 level = levels[l], position = kDrumSendPositions[code];
+            // Stock's gains for a knob at N, written out as its engine computes them
+            // (8d510d7a..8d510daa, 8d510e0a): FX I level x (0.8 k^2 + 0.2 k), FX II level x k.
+            const i32 taper = q31::add(q31::multiply(q31::multiply(position, position), 1717986918),
+                                       q31::multiply(position, 429496729));
+            const Gains at_n = {0, q31::multiply(level, taper), 0, q31::multiply(level, position), level};
+            const Gains at_0 = {0, 0, 0, 0, level};
+            sdk_drum_send_state.level_known = 0;
+            std::memset(&knob, 0, sizeof knob);
+            std::memset(&own, 0, sizeof own);
+            bind(voice, true, 0);
+            mix(knob, 5, &voice, 1, start, at_n, true, false);
+            bind(voice, true, pair(code, code));
+            mix(own, 5, &voice, 1, start, at_0, true, false);
+            for (u32 i = 0; i < kDrumSendWords; ++i) {
+                const int64_t d1 = int64_t(knob.fx1[i]) - own.fx1[i], d2 = int64_t(knob.fx2[i]) - own.fx2[i];
+                CHECK(d1 >= -2 && d1 <= 2 && d2 >= -2 && d2 <= 2);
+            }
+        }
 }
 
 // The level ramps from one block's to the next, as stock steps FX I's gain.
@@ -276,14 +311,19 @@ void codes_and_amounts() {
     payload[0] = 0;
     CHECK(drum_send_codes(payload) == 0);
     CHECK(drum_send_codes(nullptr) == 0);
-    // Amounts: TRK has none of its own, then 0, 17, 33, 50, 67, 83, 100 percent.
+    // Amounts: TRK has none of its own, then knob positions 0, 17, 33, 50, 67,
+    // 83, 100, through each send's stock curve.
     const i32 shown[kDrumSendCodes] = {0, 0, 17, 33, 50, 67, 83, 100};
     for (u32 code = 0; code < kDrumSendCodes; ++code) {
         CHECK(drum_send_percent(code) == shown[code]);
-        const double share = double(drum_send_gain(code)) / 2147483648.0;
+        const double position = double(kDrumSendPositions[code]) / 2147483648.0;
         const double want = code ? (code - 1) / 6.0 : 0.0;
-        CHECK(share > want - 1e-9 && share < want + 1e-9);
+        CHECK(position > want - 1e-9 && position < want + 1e-9);
+        for (u32 send = 0; send < kDrumSends; ++send)
+            CHECK(drum_send_gain(send, code) == (code ? drum_send_curve(send, kDrumSendPositions[code]) : 0));
     }
+    // FX I's curve is stock's 0.8 k^2 + 0.2 k: 30 percent of the level at 50.
+    CHECK(drum_send_gain(0, 4) > 644245000 && drum_send_gain(0, 4) < 644245200);
 }
 }
 
@@ -292,6 +332,7 @@ int main() {
     stock_and_followers_are_unchanged();
     own_amounts_ignore_the_track_knob();
     mixed_settings_route_each_voice();
+    own_amount_matches_the_knob();
     level_ramps();
     state_ends_with_its_track();
     std::puts("drum sends ok");
