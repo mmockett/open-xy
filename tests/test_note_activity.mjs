@@ -130,3 +130,21 @@ test('ABI 3 publishes Shift and its choices, and ABI 4 a drum kit\'s model after
   assert.throws(() => kit.tick(input(), 17, 3, 2, false, null, 0, 0, [256, 0, 0, 0]), /Invalid shift choice/);
   assert.throws(() => new PreviewDisplay(fixture(4, 80)), /Unsupported drawing ABI/);
 });
+
+test('ABI 5 publishes a padMix kit key\'s pan, level and the encoders\' row after its model', () => {
+  const display = new PreviewDisplay(fixture(5, 92));
+  display.tick(input(), 17, 1, 0, false, null, 3, 1, [1, 2, 3, 0], {pan: -40, level: -6}, 1);
+  assert.equal(display.input.length, 23);
+  assert.equal(display.input[21], 3);
+  const bytes = new Int8Array(display.memory, 2048 + 88, 4);
+  assert.deepEqual([...bytes], [-40, -6, 1, 0]);
+  display.tick(input(), 17, 1, 0, false, null);
+  assert.deepEqual([...bytes], [0, 0, 0, 0], 'Omission is a centred key at 0 dB on the first row');
+  const before = new Uint8Array(display.memory).slice();
+  for (const [mix, line] of [[{pan: 101, level: 0}, 0], [{pan: 0, level: 1}, 0], [{pan: 0, level: -31}, 0],
+    [{pan: 0.5, level: 0}, 0], [null, 0], [{pan: 0, level: 0}, 2]]) {
+    assert.throws(() => display.tick(input(), 17, 1, 0, false, null, 0, 0, [0, 0, 0, 0], mix, line));
+    assert.deepEqual(new Uint8Array(display.memory), before);
+  }
+  assert.throws(() => new PreviewDisplay(fixture(5, 88)), /ABI/);
+});

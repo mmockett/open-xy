@@ -476,6 +476,21 @@ the model's place in it, so a kit's first model stays first; the second the
 model within the group (MACHINE); the third the choke group (CHOKE); and the
 fourth turns nothing.
 
+With `"padMix": 1` in `resources` (SDK 1.10; 0 or 1, omitted means 0), Shift's
+third and fourth encoders turn the selected key's own pan (PAN) and level
+(LEVEL), as on stock Drumline: pan -100..100 with 0 centred, moving faster on
+a fast turn as stock's does, and level in whole dB, -30..0, one a detent,
+shown as `-6dB`. They are stock's own pad fields, so projects and presets keep
+them with the key. Stock pans every voice of a kit already; the SDK applies the
+level, as a cut: a key a stock kit had boosted plays at 0 dB, so a voice stays
+within its declared `outputPeakQ31`. A kit without groups keeps the model and
+the choke group on Shift's first two encoders. A kit with groups has a second
+Shift row: when the encoders are on their second row, Shift's first encoder
+chooses the choke group and the other three turn nothing, and every key of
+such a kit has a second row, a model with four or fewer controls too, whose
+encoders there are blank. Shift therefore always edits the row the encoders
+are on; the display's `line` says which.
+
 In the machine namespace, declare these callbacks in `core.h` and implement
 them alongside the engine:
 
@@ -600,6 +615,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | --- | --- | --- | --- |
 | `stereoOutput` | 0 or 1 | Output is 64 interleaved left/right frames | |
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
+| `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift turns each key's stock pan and level; with model groups, the choke group moves to Shift's second row ([drum kits](#synthesis-drum-kits)) | |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |

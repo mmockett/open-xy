@@ -47,6 +47,26 @@ inline u32 drum_choke(u8 byte) {
 inline u8 drum_mark_choke(u32 choice) {
     return static_cast<u8>((kDrumChokeGroups[choice < kDrumChokeChoices ? choice : 0] << 4) | kDrumModelMark);
 }
+// A pad's own pan and level, stock Drumline's (per-key editor 8d4d5f60, its
+// table at 84039070): pan the signed byte at +0x1e, -100..100 with 0 centred,
+// moved (event[2] + 1) * event[1] a turn (8d4d60b0); level the signed byte at
+// +0x1d in whole dB, -30..+20, one a detent (8d4d60d8). Stock's payload
+// builder (8d5ad660) turns pan into the note payload's word 5, which stock's
+// drum renderer applies to every voice, and level into word 7, Q27 with 0 dB
+// unity: 10^(dB / 20) / 16 * 2^31 (8d5ad604). A padMix kit edits level as a
+// cut, -30..0 dB, and plays any stored boost at 0 dB.
+const u32 kDrumPan = 0x1e, kDrumLevel = 0x1d;
+const i32 kDrumPanLimit = 100, kDrumLevelFloor = -30, kDrumLevelCeiling = 0;
+const u32 kDrumGainWord = 7;
+const i32 kDrumUnityGain = 1 << 27;
+inline i32 drum_pan(const void* record) {
+    return record ? static_cast<signed char>(static_cast<const unsigned char*>(record)[kDrumPan]) : 0;
+}
+inline i32 drum_level(const void* record) {
+    const i32 db = record ? static_cast<signed char>(static_cast<const unsigned char*>(record)[kDrumLevel]) : 0;
+    return db < kDrumLevelFloor ? kDrumLevelFloor : db > kDrumLevelCeiling ? kDrumLevelCeiling : db;
+}
+
 // The note payload's first word: stock's Q31 of the model byte, 6 type + group
 // over 66 bins (8d5ad6ec). Type 7 is bins 42..47.
 inline bool drum_marked_q31(i32 word) {

@@ -47,7 +47,7 @@ class DrumPreviewTests(unittest.TestCase):
             table = adapters.generate_drum_callbacks(folder, [machine]).read_text()
         self.assertIn('static const opxy::u8 kit_group_sizes[] = {13, 8, 9, 3};', table)
         self.assertIn('kit_group_names[] = {"TRX", "EFM", "P-I", "GND"};', table)
-        self.assertIn('kit_drum_count, 4, kit_group_sizes, kit_group_names},', table)
+        self.assertIn('kit_drum_count, 4, kit_group_sizes, kit_group_names, 0},', table)
         for groups in ([dict(label='ALL', count=33)], [dict(label='A', count=13), dict(label='B', count=19)],
                        [dict(label='A', count=33), dict(label='B', count=0)], [dict(label='A_B', count=30), dict(label='C', count=3)],
                        [dict(label='NINE CHAR', count=30), dict(label='C', count=3)],
@@ -57,7 +57,7 @@ class DrumPreviewTests(unittest.TestCase):
                 validate_definition(definition, 'drum')
         plain = SimpleNamespace(kind='drum', prefix='plain', definition=self.definition('drum'))
         with tempfile.TemporaryDirectory() as folder:
-            self.assertIn('plain_drum_count, 0, nullptr, nullptr},', adapters.generate_drum_callbacks(folder, [plain]).read_text())
+            self.assertIn('plain_drum_count, 0, nullptr, nullptr, 0},', adapters.generate_drum_callbacks(folder, [plain]).read_text())
 
     def test_choke_same_key_is_a_drum_flag_and_not_a_synths(self):
         from tooling.definitions import validate_definition
@@ -76,6 +76,28 @@ class DrumPreviewTests(unittest.TestCase):
                 validate_definition(definition, 'drum')
         definition = self.definition('synth')
         definition['resources']['chokeSameKey'] = 1
+        with self.assertRaises(ValueError):
+            validate_definition(definition, 'synth')
+
+    def test_pad_mix_is_a_drum_flag_in_the_table_and_the_voice(self):
+        from tooling.definitions import validate_definition
+        for value in (0, 1):
+            definition = self.definition('drum')
+            definition['resources']['padMix'] = value
+            validate_definition(definition, 'drum')
+            machine = SimpleNamespace(kind='drum', prefix='kit', definition=definition, native_name='kit')
+            with tempfile.TemporaryDirectory() as folder:
+                self.assertIn('const bool kPadMix = %s;' % ('true' if value else 'false'),
+                              adapters.generate_voice(folder, machine).read_text())
+                self.assertIn('kit_drum_count, 0, nullptr, nullptr, %d},' % value,
+                              adapters.generate_drum_callbacks(folder, [machine]).read_text())
+        for value in (2, -1, True, '1'):
+            definition = self.definition('drum')
+            definition['resources']['padMix'] = value
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate_definition(definition, 'drum')
+        definition = self.definition('synth')
+        definition['resources']['padMix'] = 1
         with self.assertRaises(ValueError):
             validate_definition(definition, 'synth')
 

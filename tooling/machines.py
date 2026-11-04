@@ -39,7 +39,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.8 adds note players and their input/output keyboard page, synthesis drum kits, and lets
 # a sample engine forking the sampler draw its own screen and read its sample's overview.
 # 1.9 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages).
-SDK_VERSION = (1, 9)
+# 1.10 lets a drum kit's Shift turn each key's stock pan and level (resources.padMix).
+SDK_VERSION = (1, 10)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -318,6 +319,8 @@ def machine_at(root, identity=None):
     icon = value.get('icon', '')
     require(icon == '' or isinstance(icon, str) and ICON.fullmatch(icon), 'icon is SVG path data')
     definition = validate_definition(json.loads((root / 'definition.json').read_text(encoding='utf-8')), kind)
+    if kind == 'drum' and definition['resources'].get('padMix', 0):
+        require_sdk(version, (1, 10), "A drum kit's pad pan and level (padMix)")
     if definition['resources'].get('sliceTiming'):
         require_sdk(version, (1, 7), 'A sample slicing clock (sliceTiming)')
     if 'bufferBytes' in definition['resources']:

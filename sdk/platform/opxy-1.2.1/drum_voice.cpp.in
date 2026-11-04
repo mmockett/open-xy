@@ -41,6 +41,9 @@ static Shared shared;
 // (the same pad, at any octave), each fading out linearly over these frames
 // (2.9 ms at 44.1 kHz) inside its own render, then freed.
 const bool kChoke = @CHOKE@;
+// padMix: the pad's stock level, the payload's word 7 (Q27, 0 dB unity), as a
+// cut. Stock's drum renderer already applies its pan (word 5) to every voice.
+const bool kPadMix = @PAD_MIX@;
 const opxy::u32 kChokeFrames = 128;
 static_assert(kChokeFrames << 24 == 0x80000000u, "The fade's Q31 gain steps are 1/128");
 static_assert(sizeof(Voice) == @VOICE_BYTES@, "Declared voice size differs from the compiled type");
@@ -177,6 +180,14 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
         @NAMESPACE@::render(slot->voice, shared, slot->owner, output, live, pitch);
         for (unsigned i = 0; i < opxy::block_frames; ++i)
             output[i] = opxy::q31::multiply(output[i], amplitude[i]);
+        // A stored boost plays at 0 dB, so a voice keeps its declared peak; a
+        // payload without the word (0) plays at unity. Stock's levels reach
+        // -30 dB, far above zero.
+        const opxy::i32 gain = kPadMix && region ? region[opxy::platform::kDrumGainWord] : 0;
+        if (gain > 0 && gain < opxy::platform::kDrumUnityGain) {
+            const opxy::i32 scale = gain << 4;   // Q27 below unity, as Q31
+            for (unsigned i = 0; i < opxy::block_frames; ++i) output[i] = opxy::q31::multiply(output[i], scale);
+        }
         // A choked voice fades to silence, then is freed: +24 then reports it
         // inactive and stock retires its note after mixing this block.
         if (kChoke && slot->fade) {

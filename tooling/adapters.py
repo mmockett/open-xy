@@ -72,6 +72,7 @@ def generate_voice(directory, m, sweep=False):
     if m.kind == 'drum':
         values['MODEL_COUNT'] = m.definition['resources']['modelCount']
         values['CHOKE'] = 'true' if m.definition['resources'].get('chokeSameKey', 0) else 'false'
+        values['PAD_MIX'] = 'true' if m.definition['resources'].get('padMix', 0) else 'false'
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
     return append_callback(path, m) if m.kind == 'drum' else path
 
@@ -95,7 +96,8 @@ def generate_drum_callbacks(directory, machines):
         # Audio classification must not require a screen constructed on the GUI role.
         rows.append(f'    {{{p}_engine_id, {p}_record_ready, {m.definition["resources"]["modelCount"]}, '
                     f'{p}_drum_defaults, {p}_drum_label, {p}_drum_model_name, {p}_drum_count, {len(groups)}, '
-                    f'{p + "_group_sizes" if groups else "nullptr"}, {p + "_group_names" if groups else "nullptr"}}},')
+                    f'{p + "_group_sizes" if groups else "nullptr"}, {p + "_group_names" if groups else "nullptr"}, '
+                    f'{1 if m.definition["resources"].get("padMix", 0) else 0}}},')
     source = '#include "drum_machines.hpp"\nextern "C" {\n' + '\n'.join(declarations) + '\n}\n'
     source += 'const opxy::platform::DrumMachine sdk_drum_machines[] = {\n' + ('\n'.join(rows) or '    {},') + '\n};\n'
     source += f'const opxy::u32 sdk_drum_machine_count = {len(rows)};\n'

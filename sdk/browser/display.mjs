@@ -4,9 +4,10 @@ import { inputWords } from './controls.mjs';
 
 // draw::Input: parameters[4], elapsed, track, note_serial, reduced_motion,
 // shown[4 bytes], slots[8], held_notes, note_off_serial, shift, choices[4 bytes],
-// model. ABI 1 ends after slots, ABI 2 after note_off_serial, ABI 3 after
-// choices; ABI 4 adds a drum kit's model.
-const INPUT_BYTES = {1: 68, 2: 76, 3: 84, 4: 88};
+// model, then pan, level, line and a reserved byte. ABI 1 ends after slots,
+// ABI 2 after note_off_serial, ABI 3 after choices; ABI 4 adds a drum kit's
+// model, ABI 5 its key's pan and level and the row the encoders edit.
+const INPUT_BYTES = {1: 68, 2: 76, 3: 84, 4: 88, 5: 92};
 const integer = (value, low, high, name) => {
   if (!Number.isInteger(value) || value < low || value > high) throw new Error(`Invalid ${name}`);
   return value;
@@ -85,6 +86,7 @@ export class PreviewDisplay {
     this.noteActivity = abi >= 2;
     this.hasShift = abi >= 3;
     this.hasModel = abi >= 4;
+    this.hasMix = abi >= 5;
     this.stateBytes = integer(e.opxy_display_state_bytes(), 4, e.memory.buffer.byteLength, 'display state size');
     // Largest declared frame: 4 paths of 64 points, 512 nodes, 32 texts and the header.
     const frameBytes = integer(e.opxy_display_frame_bytes(), 32, 4 * 516 + 512 * 28 + 32 * 36 + 32, 'drawing frame size');
@@ -107,8 +109,11 @@ export class PreviewDisplay {
   reset() { this.api.opxy_display_reset(); }
   // input: shownControls(words, shown) from controls.mjs.
   // model: a drum kit's selected machine (0..127), 0 for other kinds; shift: 1
-  // while Shift is held, with its controls' choices (0..255 each).
-  tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null, model = 0, shift = 0, choices = [0, 0, 0, 0]) {
+  // while Shift is held, with its controls' choices (0..255 each); mix: a
+  // padMix kit's key, {pan: -100..100, level: -30..0 dB}, and line, the row
+  // the encoders edit (0 or 1).
+  tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null, model = 0, shift = 0, choices = [0, 0, 0, 0],
+       mix = {pan: 0, level: 0}, line = 0) {
     if (typeof reducedMotion !== 'boolean') throw new Error('Invalid display input');
     // Validate the complete snapshot before mutating input/state.
     const [p0, p1, p2, p3, shown, ...slots] = inputWords(input);
@@ -121,11 +126,15 @@ export class PreviewDisplay {
     integer(shift, 0, 1, 'shift');
     if (!Array.isArray(choices) || choices.length !== 4) throw new Error('Invalid shift choices');
     const packed = choices.reduce((word, c, i) => (word | integer(c, 0, 255, 'shift choice') << 8 * i) >>> 0, 0);
+    if (mix === null || typeof mix !== 'object') throw new Error('Invalid pad mix');
+    const pan = integer(mix.pan ?? 0, -100, 100, 'pad pan'), level = integer(mix.level ?? 0, -30, 0, 'pad level');
+    const mixed = ((pan & 255) | (level & 255) << 8 | integer(line, 0, 1, 'encoder line') << 16) >>> 0;
     if (this.api.memory.buffer !== this.memory) throw new Error('Display memory changed');
     this.input.set([p0, p1, p2, p3, elapsed >>> 0, track, serial, Number(reducedMotion), shown, ...slots]);
     if (this.noteActivity) this.input.set([held, released], 17);
     if (this.hasShift) this.input.set([shift, packed], 19);
     if (this.hasModel) this.input[21] = model;
+    if (this.hasMix) this.input[22] = mixed;
     this.api.opxy_display_render();
     if (this.api.opxy_display_valid() !== 1) throw new Error('Display emitted an invalid drawing frame');
     return this.frame;

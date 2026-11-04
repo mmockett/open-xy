@@ -69,9 +69,18 @@ struct Input {
     u32 shift;
     u8 choices[4];
     u32 model;               // A drum kit's selected key's model (its machine); 0 for other kinds.
+    // A padMix drum kit's selected key (SDK 1.10): its pan, -100..100 with 0
+    // centred, and its level in whole dB, -30..0, as it plays; 0 otherwise.
+    // line: the row the encoders (and on a drum kit Shift) edit, 0 the first
+    // and 1 the second. The key's choke group stays in choices.
+    i8 pan;
+    i8 level;
+    u8 line;
+    u8 reserved;             // 0
 };
 const u32 notes_unavailable = 0xffffffffu;
-static_assert(sizeof(Input) == 88 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
+static_assert(sizeof(Input) == 92 && __builtin_offsetof(Input, pan) == 88 && __builtin_offsetof(Input, level) == 89 &&
+              __builtin_offsetof(Input, line) == 90 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
               __builtin_offsetof(Input, note_serial) == 24 && __builtin_offsetof(Input, reduced_motion) == 28 &&
               __builtin_offsetof(Input, shown) == 32 && __builtin_offsetof(Input, slots) == 36 &&
               __builtin_offsetof(Input, held_notes) == 68 && __builtin_offsetof(Input, note_off_serial) == 72 &&

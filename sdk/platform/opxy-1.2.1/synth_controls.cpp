@@ -70,11 +70,12 @@ Track* state(u32 track, u32 engine) {
 }
 
 // Whether the track's drum kit, if it is one, names a slot in 4..7 for the
-// selected key's model. Any other machine has its second row.
+// selected key's model. Any other machine has its second row, and so has every
+// key of a padMix kit with groups: its Shift row there holds the choke group.
 bool second_row(u32 engine, u32 track) {
     const DrumMachine* drum = sdk_drum_machine(engine);
     u8 model, values[kDrumControlCount];
-    if (!drum || !sdk_drum_values(track, &model, values)) return true;
+    if (!drum || drum->second_shift_row() || !sdk_drum_values(track, &model, values)) return true;
     for (u32 slot = opxy::page_controls; slot < 2 * opxy::page_controls; ++slot)
         if (drum->used(model, slot)) return true;
     return false;

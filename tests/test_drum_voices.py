@@ -162,6 +162,10 @@ int main() {
         CHECK(rendered(1, nullptr) == 2 && model() == m);
         for (unsigned i = 0; i < 8; ++i) CHECK(raw(i) == controls[i]);
     }
+    // Without padMix the pad's level (word 7) never reaches the voice.
+    payload[7] = 1 << 26;
+    CHECK(rendered(1) == 2);
+    payload[7] = 0;
     for (unsigned i = 0; i < 8; ++i) controls[i] = 64;
     CHECK(opxy::platform::drum_pack(10, controls, payload + 1));
     // The eight offsets act on the eight decoded controls; the model has none.
@@ -260,6 +264,41 @@ int main() {
     note(4, 60);      // takes the voice handle three freed, not a sounding one
     CHECK(initialized[5] == 1 && rendered(4) == 5);
     CHECK(rendered(2) == 3 && rendered(25) == 26 && rendered(9) == 10 && is_active(2));
+    return 0;
+}
+"""
+
+
+# A padMix kit: the payload's word 7, Q27 with 0 dB unity, cuts each voice;
+# a boost, a missing word and no payload play at unity.
+MIX_DRIVER = DRIVER[:DRIVER.index('int main() {')] + r"""
+opxy::i32 frame(unsigned id, const opxy::i32* region) {
+    opxy::i32 output[opxy::block_frames];
+    reinterpret_cast<Render>(const_cast<void*>(table(id)[3]))(objects[id], output, region, offsets);
+    for (auto sample : output) if (sample != output[0]) return -2;
+    return output[0];
+}
+int main() {
+    (void)kMarked;
+    for (unsigned i = 0; i < opxy::block_frames; ++i) fixture_amplitude[i] = 0x7fffffff;
+    for (unsigned i = 0; i < 8; ++i) offsets[i] = 0x40000000;
+    for (unsigned i = 0; i < 256; ++i) CHECK(objects[i] = probe_factory(i, i % 8));
+    note(1, 53);
+    const opxy::i32 unity = opxy::q31::multiply(2 << 16, 0x7fffffff);
+    CHECK(frame(1, nullptr) == unity);
+    opxy::i32 payload[8] = {};
+    CHECK(frame(1, payload) == unity);                      // no level word
+    payload[7] = 1 << 27;                                   // 0 dB
+    CHECK(frame(1, payload) == unity);
+    payload[7] = 10 << 27;                                  // +20 dB, stock's top: held at 0 dB
+    CHECK(frame(1, payload) == unity);
+    payload[7] = -1;
+    CHECK(frame(1, payload) == unity);
+    payload[7] = 1 << 26;                                   // -6.02 dB: half
+    CHECK(frame(1, payload) == opxy::q31::multiply(unity, 1 << 30));
+    payload[7] = 4244337;                                   // -30 dB, stock's floor: 10^-1.5 / 16 * 2^31
+    const opxy::i32 quiet = frame(1, payload);
+    CHECK(quiet == opxy::q31::multiply(unity, 4244337 << 4) && quiet > 0 && quiet < unity / 30);
     return 0;
 }
 """
@@ -392,6 +431,10 @@ class DrumVoices(unittest.TestCase):
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_the_profiling_workload_drives_every_model_through_the_adapter(self):
         self.run_adapter(BENCH_ENGINE, BENCH_DRIVER, 4, chokeSameKey=1)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_pad_mix_cuts_each_voice_by_its_pads_level(self):
+        self.run_adapter(ENGINE, MIX_DRIVER, 2, padMix=1)
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_same_key_choke_fades_the_old_voice_and_finished_frees_it(self):

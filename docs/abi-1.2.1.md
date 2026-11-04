@@ -937,6 +937,25 @@ and the others nothing. Track modulation is
 applied after decoding. GUI edits repack and use the stock dirty/publication
 calls; no audio callback writes preset state or performs file I/O.
 
+A `padMix` kit's Shift pan and level edit the pad's own bytes as stock's
+editor does: pan (`8d4d60b0`) adds `(event[2] + 1) * event[1]` to the signed
+byte at `+0x1e` within -100..100; level (`8d4d60d8`) adds `event[1]` to the
+signed dB byte at `+0x1d`, which stock bounds to -30..+20 and the kit to
+-30..0. Neither repacks the four words or the mark. Stock's payload builder
+(`8d5ad660`, the Drumline branch) writes pan as payload word 5,
+`byte * 10737418 + 0x40000000` (`8d5ad71a`), and level as word 7 through
+`8d5ad604`: `10^(dB / 20) / 16 * 2^31`, Q27 with 0 dB unity (`8d5ad740`). The
+drum voice constructor reads word 5 (`8d51af1e`), combines it with the track's
+pan modulation (`8d51a688`) and keeps it at voice `+0x88`; the drum renderer
+recomputes it each block (`8d51b6a4`) and, for a mono voice (vtable `+32`
+zero), mixes the output at left `2 (1 - p)` and right `2 p`, each saturated and
+ramped over the block (`8d51ba50`, `8d51bad0`). So an owned kit is panned by
+stock without SDK code. Stock Drumline applies word 7 in its own DSP
+(`11a073f8`, its payload at `[FP - 0x10]`), which an owned kit replaces; a
+`padMix` kit's adapter multiplies the output by word 7 shifted to Q31 when it
+is below unity, and otherwise leaves it, so a stored boost plays at 0 dB. The
+drum profiling workload supplies stock's eight payload words, word 7 at unity.
+
 ## Note players
 
 The `players` service adds seven hooks only when a collection includes a player:
