@@ -431,9 +431,10 @@ u32 sdk_sample_region_control(u32 key, u32 control, const u32* event, u32 fine) 
 // replay answers, and then edits, steps and saves the region as on its own
 // page. A window moves a pair of markers by the same turn, the leading one
 // first and the other only if the pair changed, so the window keeps its
-// length and stops at the sample's ends. An encoder the map leaves out keeps
-// Shift's fine turn of the machine's own control; unshifted turns are always
-// the machine's.
+// length and stops at the sample's ends. An encoder mapped to nothing takes
+// its Shift turn and changes nothing, neither stock's page nor the machine's
+// control. An encoder the map leaves out keeps Shift's fine turn of the
+// machine's own control; unshifted turns are always the machine's.
 const u32 kInstrumentPage = 0x080238bc;  // 0 on the engine page, 1..3 on the others
 namespace {
 bool replaying, replay_shifted;
@@ -453,6 +454,7 @@ Pair markers(u32 track, u32 first) {
     return raw ? Pair{raw[first], raw[first + 1]} : Pair{0, 0};
 }
 void stock_shift_turn(u32 object, u32 encoder, opxy::u8 code, u32 track, const u32* event) {
+    if (code == stock_shift::kNothing) return;
     if (code < stock_shift::kWindow) {
         const u32 function = code - 1;
         replay(object, encoder, function & 3, function >= 4, event);

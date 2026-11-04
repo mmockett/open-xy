@@ -84,11 +84,12 @@ SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', '
 SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS, 'display', 'stockShift')
 # The stock sampler page's turns a stockShift entry names, as the SDK's codes
 # (synth_controls.hpp): its encoders 1..4 unshifted, then with Shift, then the
-# two windows. An empty name keeps Shift's fine turn of the machine's control.
-# Shift + encoder 3, the loop crossfade (7), is left out: SampleBlock does not
-# carry it, so the engine could not hear it.
+# two windows, then none, which takes the turn and changes nothing. An empty
+# name keeps Shift's fine turn of the machine's control. Shift + encoder 3, the
+# loop crossfade (7), is left out: SampleBlock does not carry it, so the engine
+# could not hear it.
 STOCK_SHIFT = {'': 0, 'start': 1, 'loopStart': 2, 'loopEnd': 3, 'end': 4,
-               'direction': 5, 'tune': 6, 'gain': 8, 'window': 9, 'loopWindow': 10}
+               'direction': 5, 'tune': 6, 'gain': 8, 'window': 9, 'loopWindow': 10, 'none': 11}
 # An effect's optional delay memory (SDK 1.2): stock's per-send scratch, at most
 # 512 KiB; and transport 1 for the tempo in process (SDK 1.2).
 # An effect's display (SDK 1.7): it draws its own page on the sends, as a synth does.
@@ -274,8 +275,8 @@ def validate_stock_shift(resources):
     unknown = [n for n in names if n not in STOCK_SHIFT]
     require(not unknown, "stockShift names %s; it takes %s, or '' for the machine's own fine turn"
             % (', '.join(map(json.dumps, unknown)), ', '.join(n for n in STOCK_SHIFT if n)))
-    named = [n for n in names if n]
-    require(named, 'stockShift names no stock control: leave it out instead')
+    require(any(names), 'stockShift names no stock control: leave it out instead')
+    named = [n for n in names if n and n != 'none']
     require(len(set(named)) == len(named), 'stockShift names a stock control twice')
     require('display' in resources,
             "stockShift gives Shift on a sample engine's own screen to the stock sampler page: it needs resources.display")

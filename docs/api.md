@@ -607,11 +607,13 @@ own page, and the engine reads it from `SampleBlock.region`:
 | `gain` | Sample gain | Shift + encoder 4 | `region.level` |
 | `window` | The start and end together | Encoders 1 and 4 | `region.begin`, `region.end` |
 | `loopWindow` | The loop start and end together | Encoders 2 and 3 | `region.loop_begin`, `region.loop_end` |
+| `none` | Nothing: Shift and the encoder change nothing | | |
 | `""` | The machine's own control, in fine steps, as without `stockShift` | | |
 
 A window moves its two markers by the same turn, keeping its length, and stops at
-the sample's ends. Each name may appear once; a list shorter than four leaves the
-remaining encoders on fine steps. For example, a granular engine might choose:
+the sample's ends. Each name may appear once, except `none` and `""`; a list
+shorter than four leaves the remaining encoders on fine steps. For example, a
+granular engine might choose:
 
 ```json
 "stockShift": ["start", "end", "window", "gain"]
@@ -623,6 +625,8 @@ on the engine's own page change; everything else stays as it was:
 - Turns without Shift edit the machine's own controls, and a press still switches
   between its first four and second four.
 - An encoder the list leaves empty keeps Shift's fine turn of the machine's control.
+- An encoder named `none` does nothing with Shift held: neither the machine's control
+  nor the stock page changes. The screen can leave its cell blank while `shift` is 1.
 - The track's envelope, filter and LFO pages are stock's, with or without Shift.
 
 The engine plays begin..end as before. The loop markers are reported for the engine

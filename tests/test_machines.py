@@ -472,6 +472,15 @@ class OutsideMachines(unittest.TestCase):
         self.assertIn('nullptr, {5, 6, 0, 8}},', table())
         declare(['window', 'loopStart', 'loopEnd'])
         self.assertIn('nullptr, {9, 2, 3, 0}},', table())
+        # "none" takes the Shift turn and changes nothing; it may appear more than once,
+        # and on its own.
+        declare(['start', 'window', 'none', 'end'])
+        self.assertIn('nullptr, {1, 9, 11, 4}},', table())
+        declare(['none', '', 'none'])
+        self.assertIn('nullptr, {11, 0, 11, 0}},', table())
+        declare(['none', 'none', 'gain', 'gain'])
+        with self.assertRaisesRegex(ValueError, 'twice'):
+            machines.machine_at(folder)
         # Without it the row leaves every code zero, and Shift turns stay fine steps.
         declare(None)
         self.assertNotIn('{1, 1, 1, 1}, nullptr', table())
