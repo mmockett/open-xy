@@ -38,15 +38,20 @@ const SampleMachine sdk_sample_machines[] = {
     {reinterpret_cast<const char*>(35), 7, owned, defaults, assign, control, nullptr, 0, nullptr, nullptr, nullptr, nullptr, slice_clock},
     {reinterpret_cast<const char*>(36), 2, owned, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr},
     {reinterpret_cast<const char*>(37), 7, owned, defaults, assign, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, slice_clock},
-    {reinterpret_cast<const char*>(38), 2, owned, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr}
+    {reinterpret_cast<const char*>(38), 2, owned, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr},
+    {reinterpret_cast<const char*>(39), 2, owned, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr}
 };
-const opxy::u32 sdk_sample_machine_count = 4;
-// Only engine 38 draws its own screen. Its stockShift map gives Shift + encoder
-// 1 to the stock end, 2 to the loop window, 4 to gain; 3 keeps its fine turn.
+const opxy::u32 sdk_sample_machine_count = 5;
+// Only engines 38 and 39 draw their own screens. 38's stockShift map gives Shift
+// + encoder 1 to the stock end, 2 to the loop window, 4 to gain; 3 keeps its
+// fine turn. 39's gives 1 to the start, 2 to the window, 4 to the end, and
+// Shift + encoder 3 to nothing.
 const SynthControls sdk_synth_controls[] = {
     {reinterpret_cast<const char*>(38), nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0x7, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false,
-     0, 0, 0, {1, 1, 1, 1}, nullptr, {stock_shift::kShifted - 1, stock_shift::kLoopWindow, stock_shift::kNone, stock_shift::kShifted + 3}}};
-const opxy::u32 sdk_synth_control_count = 1;
+     0, 0, 0, {1, 1, 1, 1}, nullptr, {stock_shift::kShifted - 1, stock_shift::kLoopWindow, stock_shift::kNone, stock_shift::kShifted + 3}},
+    {reinterpret_cast<const char*>(39), nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0x7, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false,
+     0, 0, 0, {1, 1, 1, 1}, nullptr, {1, stock_shift::kWindow, stock_shift::kNothing, 4}}};
+const opxy::u32 sdk_synth_control_count = 2;
 void sdk_synth_shown(opxy::u32, opxy::u8* shown) { for (opxy::u32 i = 0; i < 4; ++i) shown[i] = opxy::u8(i); }
 void sdk_sample_slice_config(SamplePreviewRange* range, unsigned id, unsigned track, const void*) {
     check((id == 35 || id == 37) && track == 0);
@@ -226,8 +231,8 @@ int main() {
     for (bool registered : {false, true}) {
         ready = registered;
         for (unsigned id = 0; id < 256; ++id) {
-            const bool sample = registered && (id == 35 || id == 36 || id == 37 || id == 38);
-            check(sdk_sample_alias(id) == (sample ? id == 36 || id == 38 ? 2u : 30u : id));
+            const bool sample = registered && id >= 35 && id <= 39;
+            check(sdk_sample_alias(id) == (sample ? id == 36 || id >= 38 ? 2u : 30u : id));
         }
     }
     ready = true;
@@ -476,7 +481,7 @@ int main() {
     // Where stock sets a sampler's eight words to neutral: stock samplers and engines
     // on a stock page still say yes, an engine with its own screen no, a synth no.
     check(sdk_sample_neutral_engine(2) == 1 && sdk_sample_neutral_engine(35) == 1 && sdk_sample_neutral_engine(36) == 1);
-    check(sdk_sample_neutral_engine(38) == 0 && sdk_sample_neutral_engine(50) == 0);
+    check(sdk_sample_neutral_engine(38) == 0 && sdk_sample_neutral_engine(39) == 0 && sdk_sample_neutral_engine(50) == 0);
     check(plain_packets > 0 && extended_packets > 0);
 
     // A page-2 engine's own screen: what its sampler page's turns edit.
@@ -513,6 +518,26 @@ int main() {
         for (unsigned e = 0; e < 4; ++e) {
             check(turn(e, up) == 0 && !page_calls && page_flags == 1 && editor_index == 99);
         }
+    }
+    page_word = 0;
+    // An encoder mapped to nothing: its Shift turn is taken and changes nothing,
+    // neither the machine's control nor any marker, and stock's flag isn't asked.
+    engine = 39;
+    region[1] = 100; region[2] = 900; region[3] = 400; region[4] = 600;
+    for (const unsigned* event : {up, down, far}) {
+        check(turn(2, event) == 1 && !page_calls && !page_flags && editor_index == 99);
+        check(region[1] == 100 && region[2] == 900 && region[3] == 400 && region[4] == 600);
+    }
+    // Its neighbours still go to stock: Shift + encoder 1, the stock start.
+    check(turn(0, up) == 1 && page_calls == 1 && page_encoder == 0 && !page_shift && region[1] == 110);
+    // Without Shift, encoder 3 edits the machine's own control as before.
+    shifted = false;
+    check(turn(2, up) == 1 && !page_calls && editor_index == 2);
+    // On the envelope, filter and LFO pages the turn stays stock's.
+    shifted = true;
+    for (unsigned page = 1; page < 4; ++page) {
+        page_word = page;
+        check(turn(2, up) == 0 && !page_calls && page_flags == 1 && editor_index == 99);
     }
     page_word = 0;
     // Outside a replay the page's Shift test asks stock.

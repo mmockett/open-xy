@@ -38,8 +38,9 @@ struct SynthControls {
 // encoder e (0..3) unshifted is 1 + e (start, loop start, loop end, end), with
 // Shift 5 + e (direction, tune, crossfade, gain). A window moves a pair of
 // markers by the same turn: the start and end, or the loop start and end.
+// kNothing takes the Shift turn and changes nothing.
 namespace stock_shift {
-const u8 kNone = 0, kShifted = 5, kWindow = 9, kLoopWindow = 10;
+const u8 kNone = 0, kShifted = 5, kWindow = 9, kLoopWindow = 10, kNothing = 11;
 }
 // An owned effect on send track 14 or 15 as its own page shows it (SDK 1.7):
 // each position's shown slot, value, title and caption, every control's
