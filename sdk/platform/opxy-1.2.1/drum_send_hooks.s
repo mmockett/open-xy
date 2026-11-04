@@ -12,6 +12,7 @@
 .extern sdk_drum_send_begin
 .extern sdk_drum_send_voice
 .extern sdk_drum_send_state
+.extern sdk_drum_send_own_mix
 
 /* 8d510bea: CALL 0x8d51c708, the track's voice loop. Its arguments (R0-R2 and
  * the stack) and return are untouched: after the state is reset, this jumps to
@@ -90,3 +91,21 @@ sdk_drum_send_source_2:
     ASTAT = [SP++];
     RTS;
 .size sdk_drum_send_source_2, .-sdk_drum_send_source_2
+
+/* 8d511116: P0 = [SP + 0x48], just after FX II's loop has stored its last word
+ * (8d51110e). Adds the track's own-amount sums into the FX buses at the
+ * engine's level for the track ([FP - 0x68], written once at 8d510d38, the
+ * gain stock gives the track's dry mix and sends alike), then replays the
+ * load. HOOK_SAVE's LINK keeps the engine's frame pointer at [FP]. */
+.global sdk_drum_send_own
+.type sdk_drum_send_own, STT_FUNC
+sdk_drum_send_own:
+    HOOK_SAVE
+    P0 = [FP];
+    R0 = [P0 + 8];
+    R1 = [P0 + -0x68];
+    CALL sdk_drum_send_own_mix;
+    HOOK_RESTORE
+    P0 = [SP + 0x48];
+    RTS;
+.size sdk_drum_send_own, .-sdk_drum_send_own

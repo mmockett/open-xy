@@ -24,7 +24,11 @@ PROFILE = json.loads((ROOT / 'profiles/opxy-1.2.1.json').read_text(encoding='utf
 SITES = {'0x8d510bea': ('sdk_drum_send_track', '00e38f5d'),
          '0x8d51c7b2': ('sdk_drum_send_voice_hook', '0adab01148150000'),
          '0x8d511088': ('sdk_drum_send_source_1', '09da901100360000'),
-         '0x8d5110ca': ('sdk_drum_send_source_2', '09da901100360000')}
+         '0x8d5110ca': ('sdk_drum_send_source_2', '09da901100360000'),
+         '0x8d511116': ('sdk_drum_send_own', '30e51200')}
+# Stock's loads of the two send buses (8d511096 for FX I, 8d5110da for FX II),
+# which the own-amount hook writes into.
+BUS_LOADS = {'0x8d511096': '08daca8440a10000', '0x8d5110da': '0bdaca8440a30000'}
 
 SEND_ENGINE = '''#include "core.h"
 namespace probe {
@@ -123,7 +127,9 @@ class DrumSend(unittest.TestCase):
     def test_the_hooks_keep_stock_mixing_and_route_each_keys_share(self):
         source = (PLATFORM / 'drum_send.cpp').read_text(encoding='utf-8')
         for stock, host in (('reinterpret_cast<i32*>(0x11903600)', 'host_sum'),
-                            ('reinterpret_cast<const i32*>(0x11b01548)', 'host_voice')):
+                            ('reinterpret_cast<const i32*>(0x11b01548)', 'host_voice'),
+                            ('reinterpret_cast<i32*>(0x84caa140)', 'host_fx1'),
+                            ('reinterpret_cast<i32*>(0x84caa340)', 'host_fx2')):
             self.assertEqual(source.count(stock), 1, stock)
             source = source.replace(stock, host)
         with tempfile.TemporaryDirectory(prefix='drum-send-') as folder:
@@ -203,6 +209,16 @@ class DrumSend(unittest.TestCase):
             self.assertIn('%s.H = 0x%04x; %s.L = 0x%04x;' % (register, value >> 16, register, value & 0xffff), body,
                           '%s must replay %s = 0x%08x' % (symbol, register, value))
         self.assertEqual(loads, {'0x8d51c7b2': 0x11b01548, '0x8d511088': 0x11903600, '0x8d5110ca': 0x11903600})
+        buses = []
+        for before in BUS_LOADS.values():
+            words = [int.from_bytes(bytes.fromhex(before)[i:i + 2], 'little') for i in range(0, 8, 2)]
+            buses.append(words[1] << 16 | words[2])
+        self.assertEqual(buses, [0x84caa140, 0x84caa340])
+        for bus in buses:
+            self.assertIn('reinterpret_cast<i32*>(0x%08x)' % bus, source)
+        # The own-amount hook replays the load it replaces (8d511116: 30e5 1200).
+        body = stubs[stubs.index('sdk_drum_send_own:\n'):]
+        self.assertIn('    HOOK_RESTORE\n    P0 = [SP + 0x48];\n    RTS;', body[:body.index('.size')])
         # The track hook replaces a relative CALL and must jump to its target.
         from tooling.firmware import decode_branch
         target, call = decode_branch(0x8d510bea, bytes.fromhex(SITES['0x8d510bea'][1]))
