@@ -358,7 +358,7 @@ class Render(unittest.TestCase):
 
     def test_diag_002_is_003s_idle_window_without_the_render(self):
         source = (Path(native.ROOT) / 'sdk/platform/opxy-1.2.1/bounce_render.cpp').read_text()
-        self.assertIn('const u32 kDiagnose = 2;', source)
+        self.assertRegex(source, r'const u32 kDiagnose = [0-4];')
         self.assertIn('if (kDiagnose == 1 && !(semaphore = create_semaphore())) return;', source)
 
         def body(name):
@@ -372,7 +372,7 @@ class Render(unittest.TestCase):
         self.assertIn('next_line += kIdleLogMillis;', idle)
         self.assertIn('delay_ticks(kIdleWake);', idle)
         self.assertIn('const u32 kIdleMillis = 600000;', source)
-        self.assertIn('const u32 kIdleWake = 100;', source)
+        self.assertIn('const u32 kIdleWake = kDiagnose == 3 ? 1000 : 100;', source)
         for call in ('set_mode(', 'note_on(', 'render(', 'allocate(', 'file_open(', 'measure_clock(', 'set_priority(',
                      'sleep_ticks('):
             self.assertNotIn(call, idle)
@@ -391,7 +391,11 @@ class Render(unittest.TestCase):
         renderer = renderer[:renderer.index('\n}\n')]
         # The idle window and the gap count ticks; the window logs both clocks.
         self.assertIn('const u32 waited = tick_count() - first;', renderer)
-        self.assertIn('if (waited >= kStartMillis) break;', renderer)
+        self.assertIn('if (waited >= kWaitMillis) break;', renderer)
+        self.assertIn('const u32 kWaitMillis = kDiagnose == 4 ? 600000 : kStartMillis;', source)
+        self.assertIn('static_cast<int>(kStartMillis), raw_blocks(), word(kBlocks));', renderer)
+        # diag-004 stops before the clock measurement; nothing before it changed from 003 but the window.
+        self.assertLess(renderer.index('if (kDiagnose == 4 && started == 1) {'), renderer.index('measure_clock()'))
         self.assertIn('render: idle %d ticks, block counter moved %d', renderer)
         self.assertIn('delay_ticks(kGapMillis);', renderer)
         # The take's speed and too-slow limit count ticks; mode 2 waits on no counter.

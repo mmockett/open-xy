@@ -99,6 +99,12 @@ const Atomic kAtomic = kSuspend;
 // The test's settings, fixed at compile time. Waits are in ticks, a tick taken as
 // a millisecond; the take's length is in audio.
 const u32 kStartMillis = 120000;       // after the task starts: a window to play the base with the task idle
+// Which build (drafts/bounce-stems.md §7.8): 0 renders (bounce-2a); 1 is bounce-diag-001's bisect
+// (diagnose()); 2 and 3 bounce-diag-002 and -003, 003's idle window alone (idle(), waking every
+// 100 and 1000 ticks); 4 bounce-diag-004, this file as bounce-2a-003 with its window 600 s long
+// and a stop where the clock measurement began, so the render stays linked and the layout 003's.
+const u32 kDiagnose = 4;
+const u32 kWaitMillis = kDiagnose == 4 ? 600000 : kStartMillis;   // its line still says 120000, as 003's did
 const u32 kIdleLogMillis = 10000;      // a line with both clocks this often in that window
 const u32 kSettleMillis = 1500;        // after each step line, so stock's ~1 s log drain writes it out
 const u32 kClockTicks = 300;           // the clock measurement's span
@@ -473,7 +479,7 @@ void renderer(void*) {
     u32 next_line = kIdleLogMillis / 10;
     for (;;) {
         const u32 waited = tick_count() - first;
-        if (waited >= kStartMillis) break;
+        if (waited >= kWaitMillis) break;
         if (waited >= next_line) {
             next_line += kIdleLogMillis;
             log(__LINE__, "render: idle %d ticks, block counter moved %d (raw %x), cycles %x", static_cast<int>(waited),
@@ -484,6 +490,11 @@ void renderer(void*) {
     }
     step(__LINE__, "render: wait over after %d ticks, block counter moved %d; measuring the clock",
          static_cast<int>(tick_count() - first), static_cast<int>(blocks() - counted));
+    // bounce-diag-004 stops here. started is volatile and 1, so the render below stays linked.
+    if (kDiagnose == 4 && started == 1) {
+        log(__LINE__, "render: diag 4 done; no render");
+        return;
+    }
     if (!measure_clock()) {
         settle();
         return;
@@ -530,9 +541,6 @@ void renderer(void*) {
 //   5. then       ten takes with a 100-tick timeout of a semaphore no one gives, logged
 //                 before and after                              (002's never-returning sleep)
 // Nothing else: no mode change, note, render, allocation or file.
-// Which build: 0 renders (bounce-2a), 1 is bounce-diag-001's bisect below, 2 bounce-diag-002's
-// (idle(), after diagnose()).
-const u32 kDiagnose = 2;
 const u32 kDiagBlocked = 90000, kDiagBelow = 270000, kDiagEqual = 450000, kDiagLogged = 570000;
 const u32 kDiagWake = 100;
 u32 semaphore;   // created at startup, as bounce-2a-002 did; never given
@@ -614,7 +622,7 @@ void diagnose() {
 // every 10 s after with both clocks (now with the wakes), the same halfword counter reads. Its
 // sleep is 100 ticks (003's was 1000), so it wakes ten times as often as 003 did.
 const u32 kIdleMillis = 600000;
-const u32 kIdleWake = 100;
+const u32 kIdleWake = kDiagnose == 3 ? 1000 : 100;
 
 void idle() {
     const u32 first = tick_count();
@@ -648,7 +656,7 @@ void idle() {
 void task_entry(void* argument) {
     if (kDiagnose == 1)
         diagnose();
-    else if (kDiagnose == 2)
+    else if (kDiagnose == 2 || kDiagnose == 3)
         idle();
     else
         renderer(argument);
