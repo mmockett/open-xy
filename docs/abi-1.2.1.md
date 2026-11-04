@@ -960,6 +960,17 @@ drum profiling workload supplies stock's eight payload words: for the kit's
 own keys word 6 neutral and word 7 at unity, and for every other run each pad
 control at its top and, with `padMix`, a 6 dB cut, the heaviest path.
 
+Stock's key layer sends an encoder click released while Shift is held not to
+the key dispatcher `8c0b5b10` (whose press call `sdk_synth_press` hooks) but to
+the top controller's shifted key handler (`8c0b5c90` -> `8c0b5b80`, vtable
+`+16`; the instrument controller's is `8c0b28a8`), which for codes 10..13 runs
+stock's Shift-press action `8c0b270e`. That action acts only for the samplers
+(2, 3, 30) and Drumline (4: on encoder 1, `8d4d6180`). Its engine query at
+`8c0b2730` is already the drum page's hook (`sdk_sample_press_engine`, button
+4..7 in `R5`); for an owned kit with a second Shift row it now switches the
+encoders' row as an unshifted press does (`sdk_drum_shift_press`), and stock
+still sees the kit's own engine, for which it does nothing.
+
 A `padMix` kit's pad fields live in bits 16..30 of the pad word at `+0x14`:
 its `padControls` packed from bit 16 in declaration order (at most 9 bits),
 then FX I at bits 25..27 and FX II at 28..30; bit 31 and the low half stay

@@ -122,4 +122,8 @@ opxy::i32 sdk_drum_level(opxy::u32 track) __asm__("sdk_drum_level");
 void sdk_drum_pad_values(opxy::u32 track, opxy::i32* values) __asm__("sdk_drum_pad_values");
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine)
     __asm__("sdk_drum_edit");
+// A Shift press of encoder 0..3 on a kit with a second Shift row
+// (synth_controls.cpp): moves the encoders, and Shift with them, to the other row.
+// True when it did.
+bool sdk_drum_shift_press(opxy::u32 track, opxy::u32 encoder) __asm__("sdk_drum_shift_press");
 }
