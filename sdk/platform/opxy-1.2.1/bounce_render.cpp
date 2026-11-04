@@ -103,7 +103,7 @@ const u32 kStartMillis = 120000;       // after the task starts: a window to pla
 // (diagnose()); 2 and 3 bounce-diag-002 and -003, 003's idle window alone (idle(), waking every
 // 100 and 1000 ticks); 4 bounce-diag-004, this file as bounce-2a-003 with its window 600 s long
 // and a stop where the clock measurement began, so the render stays linked and the layout 003's.
-const u32 kDiagnose = 4;
+const u32 kDiagnose = 3;
 const u32 kWaitMillis = kDiagnose == 4 ? 600000 : kStartMillis;   // its line still says 120000, as 003's did
 const u32 kIdleLogMillis = 10000;      // a line with both clocks this often in that window
 const u32 kSettleMillis = 1500;        // after each step line, so stock's ~1 s log drain writes it out
