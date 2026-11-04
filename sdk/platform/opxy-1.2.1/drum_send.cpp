@@ -1,6 +1,11 @@
 // Per-key sends (drum_send.hpp): the C++ side of the stock mixer hooks in
 // drum_send_hooks.s. Audio role only; nothing here allocates or waits.
 #include "drum_send.hpp"
+#if defined(__bfin__)
+#include "pad_diag.hpp"   // padtest only; the host model has no stock logger
+#else
+#define pad_diag(...) ((void)0)
+#endif
 
 using opxy::i32;
 using opxy::u32;
@@ -52,12 +57,37 @@ void sdk_drum_send_begin() { drum_send_begin(sdk_drum_send_state); }
 
 // 8d51c7b2: before stock adds `voice` (its rendered block at 0x11b01548) into
 // the sum of `track`.
+namespace {
+// padtest diagnostic (local only): on the audio role, a line when a track's
+// kit voices bring other send codes, and when a track's own-amount sums start
+// or stop; stock's logger, at most 120 lines a boot from this file.
+u32 diag_codes[kDrumSendTracks] = {~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u};
+u32 diag_own[kDrumSendTracks];
+}
 void sdk_drum_send_voice(const unsigned char* voice, u32 track) {
-    drum_send_voice(sdk_drum_send_state, follow, own, track, kTrackSum, kVoiceOutput, codes_of(voice));
+    const u32 codes = codes_of(voice);
+    drum_send_voice(sdk_drum_send_state, follow, own, track, kTrackSum, kVoiceOutput, codes);
+    if (track < kDrumSendTracks && codes != diag_codes[track]) {
+        diag_codes[track] = codes;
+        pad_diag("sdk/pad_diag_send.cpp", __LINE__, "send voice track %d fx1 %d fx2 %d follow %d %d own %d %d",
+                 static_cast<int>(track), static_cast<int>(drum_send_code(codes, 0)), static_cast<int>(drum_send_code(codes, 1)),
+                 static_cast<int>(sdk_drum_send_state.bus[0].track), static_cast<int>(sdk_drum_send_state.bus[1].track),
+                 static_cast<int>(sdk_drum_send_state.own[0]), static_cast<int>(sdk_drum_send_state.own[1]));
+    }
 }
 
 // 8d511116: stock's send loops for `track` are done; `level` is the engine's
 // gain for the track's dry and sends alike ([FP-0x68], 8d510d38).
 void sdk_drum_send_own_mix(u32 track, i32 level) {
     drum_send_own(sdk_drum_send_state, own, kSendBuses, track, level);
+    if (track < kDrumSendTracks) {
+        const u32 now = (sdk_drum_send_state.own[0] == track + 1) | (sdk_drum_send_state.own[1] == track + 1) << 1 |
+                        (sdk_drum_send_state.bus[0].track == track + 1) << 2 | (sdk_drum_send_state.bus[1].track == track + 1) << 3;
+        if (now != diag_own[track]) {
+            diag_own[track] = now;
+            pad_diag("sdk/pad_diag_send.cpp", __LINE__, "send mix track %d own fx1 %d fx2 %d follow fx1 %d fx2 %d level %08x",
+                     static_cast<int>(track), static_cast<int>(now & 1), static_cast<int>(now >> 1 & 1),
+                     static_cast<int>(now >> 2 & 1), static_cast<int>(now >> 3 & 1), static_cast<unsigned>(level));
+        }
+    }
 }

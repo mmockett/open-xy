@@ -109,6 +109,10 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     if (!drum_pack(model, controls, static_cast<i32*>(region) + 1, drum_codec(machine->model_count, machine->count))) return 0;
     record[24] = mark;
     *pad_word = pad;
+    if (machine->pad_mix)
+        pad_diag("sdk/pad_diag_word.cpp", __LINE__, "pad word key %d %08x fx1 %d fx2 %d mark %02x",
+                 static_cast<int>(key), static_cast<unsigned>(pad), static_cast<int>((static_cast<u32>(pad) >> 25) & 7),
+                 static_cast<int>((static_cast<u32>(pad) >> 28) & 7), static_cast<unsigned>(mark));
     stock<void()>(0x8d585ee8)();
     stock<void(u32)>(0x8d4d5f18)(key);
     return 0;
