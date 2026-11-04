@@ -2100,6 +2100,17 @@
       "symbol": "sdk_drum_send_source_2",
       "call": true,
       "service": "drum_sends"
+    },
+    {
+      "kind": "hook",
+      "name": "Mixer: after FX II's loop, each key's own send amounts into FX I and FX II at the track's level",
+      "address": "0x8d511116",
+      "file_offset": "0x148372",
+      "length": 4,
+      "before": "30e51200",
+      "symbol": "sdk_drum_send_own",
+      "call": true,
+      "service": "drum_sends"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

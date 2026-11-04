@@ -31,7 +31,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
 | Synthesis drum transport | 12 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
-| Per-key sends | 4 | Lets a drum kit's keys pass their own shares of the track's FX I and FX II sends; linked only with a `padSend` kit |
+| Per-key sends | 5 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padSend` kit |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
 | Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
@@ -989,25 +989,36 @@ finds silent (`8d51237a`) skips every bus.
 
 A kit with `padSend` keeps each key's two send codes in bits 25..30 of its pad
 word `+0x14` (payload word 6), and the adapter keeps the codes of the block a
-voice last rendered. Four hooks, each replacing one whole instruction outside
-every hardware loop body and replaying it:
+voice last rendered. Code 0 (`TRK`) follows the track's send; codes 1..7 send
+the key's own amount, 0..100 percent of a full send, whatever the track's send
+knob. Five hooks, each replacing one whole instruction outside every hardware
+loop body and replaying it:
 
 - `8d510bea`, the call of the voice loop: resets the per-key state, then jumps
   to the loop with the engine's arguments and return address.
 - `8d51c7b2`, `P2 = 0x11b01548` before a voice is added: for each send, while
-  every voice so far follows the track nothing is kept; the first voice of the
-  track with a share of its own copies stock's sum so far into a scratch sum,
-  and from then on every voice of the track goes into that scratch sum at its
-  share, a follower or a stock voice unscaled. The voice record's machine
-  object (`+0x94`, `8d51b53e`) identifies a kit's voice by its method table.
+  every voice so far follows the track nothing is kept. The first voice of the
+  track with an amount of its own copies stock's sum so far into a followers'
+  sum and starts an own-amount sum; from then on a follower (a `TRK` key or a
+  stock voice) goes into the followers' sum, and an own-amount voice into the
+  other, scaled by its amount. The voice record's machine object (`+0x94`,
+  `8d51b53e`) identifies a kit's voice by its method table.
 - `8d511088` and `8d5110ca`, `P1 = 0x11903600` before FX I's and FX II's
-  loops: the track's scratch sum for that send when it kept one (the track index
-  is the engine's `[FP + 8]`), otherwise stock's address. Only P1 changes.
+  loops: the track's followers' sum for that send when it kept one (the track
+  index is the engine's `[FP + 8]`), otherwise stock's address. Only P1 changes.
+- `8d511116`, `P0 = [SP + 0x48]` after FX II's loop: adds each own-amount sum
+  into its bus at the engine's level for the track (`[FP - 0x68]`, written at
+  `8d510d38`), which both send gains are built from (FX I's as
+  level × (0.8x² + 0.2x) of its knob, FX II's as level × knob), so an amount of
+  100 sends what stock sends with the track's knob at full, and the track's
+  mute and level still apply. The level ramps over the block from the
+  previous block's, as stock steps FX I's gain.
 
-Stock's loops do all the mixing, and the main mix always reads stock's sum. A
-send every voice follows, every stock track and every block of a kit whose
-keys all follow are mixed bit for bit as stock mixes them. The source dry
-reduction (`1 - s(1 - d)`) stays the track's.
+Stock's loops do the followers' mixing, and the main mix always reads stock's
+sum. A send every voice follows, every stock track and every block of a kit
+whose keys all follow are mixed bit for bit as stock mixes them. The source
+dry reduction (`1 - s(1 - d)`) stays the track's and takes no account of
+own amounts.
 
 ## Note players
 

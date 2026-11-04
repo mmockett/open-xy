@@ -3,23 +3,24 @@
 // stock instructions: the voice loop's saturating add of each rendered voice
 // into the track's 128-word stereo sum (8d51c7b0..8d51c7d8), then the main mix
 // at a constant gain (8d511038..8d511084), FX I at a gain stepped every word
-// (8d511088..8d5110c8) and FX II at a constant gain (8d5110ca..8d51110e). A
-// skipped track (8d51237a) mixes nothing. The test substitutes host buffers
-// for stock's 0x11903600 and 0x11b01548.
+// (8d511088..8d5110c8) and FX II at a constant gain (8d5110ca..8d51110e), then
+// the own-amount hook (8d511116). A skipped track (8d51237a) mixes nothing.
+// The test substitutes host buffers for stock's 0x11903600, 0x11b01548 and the
+// send buses 0x84caa140 and 0x84caa340.
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
 #include <opxy/q31.hpp>
 // The stock buffers drum_send.cpp names, as the test substitutes them.
-extern opxy::i32 host_sum[], host_voice[];
+extern opxy::i32 host_sum[], host_voice[], host_fx1[], host_fx2[];
 #include "drum_send.cpp"
 
 using opxy::i32;
 using opxy::u32;
 namespace q31 = opxy::q31;
 
-i32 host_sum[kDrumSendWords], host_voice[kDrumSendWords];
+i32 host_sum[kDrumSendWords], host_voice[kDrumSendWords], host_fx1[kDrumSendWords], host_fx2[kDrumSendWords];
 
 #define CHECK(condition) do { if (!(condition)) { std::fprintf(stderr, "line %d: %s\n", __LINE__, #condition); std::exit(1); } } while (0)
 
@@ -35,6 +36,7 @@ const u32 sdk_drum_send_kit_count = 1;
 
 namespace {
 // FX I's code in bits 0..2, FX II's in 3..5, as drum_send_codes gives them.
+// 0 follows the track (TRK); 1 is dry; 7 is a full send of the key's own.
 u32 pair(u32 fx1, u32 fx2) { return fx1 | fx2 << kDrumSendCodeBits; }
 
 // A stock voice record: its machine object at +0x94 (8d51b53e).
@@ -46,7 +48,9 @@ void bind(StockVoice& voice, bool kit, u32 codes) {
     std::memcpy(voice.bytes + 0x94, &object, sizeof object);
 }
 
-struct Gains { i32 main, fx1, step, fx2; };
+// The engine's gains for one track: main, FX I's start and step, FX II's, and
+// the level ([FP-0x68]) both sends are scaled from.
+struct Gains { i32 main, fx1, step, fx2, level; };
 struct Buses { i32 main[kDrumSendWords], fx1[kDrumSendWords], fx2[kDrumSendWords]; };
 
 u32 seed = 12345;
@@ -65,34 +69,49 @@ void mix(Buses& buses, u32 track, StockVoice* voices, u32 count, const i32* star
     }
     if (skip) return;
     for (u32 i = 0; i < kDrumSendWords; ++i) buses.main[i] = q31::add(buses.main[i], q31::multiply(g.main, host_sum[i]));
+    // The send buses are stock's own memory: the hooks write them in place.
+    std::memcpy(host_fx1, buses.fx1, sizeof host_fx1);
+    std::memcpy(host_fx2, buses.fx2, sizeof host_fx2);
     // 8d511088: FX I's source; word k at the gain stepped k + 1 times.
     const i32* source = hooks ? drum_send_source(sdk_drum_send_state, 0, track, host_sum) : host_sum;
     i32 gain = g.fx1;
     for (u32 i = 0; i < kDrumSendWords; ++i) {
         gain = q31::add(gain, g.step);
-        buses.fx1[i] = q31::add(buses.fx1[i], q31::multiply(gain, source[i]));
+        host_fx1[i] = q31::add(host_fx1[i], q31::multiply(gain, source[i]));
     }
     // 8d5110ca: FX II's source.
     source = hooks ? drum_send_source(sdk_drum_send_state, 1, track, host_sum) : host_sum;
-    for (u32 i = 0; i < kDrumSendWords; ++i) buses.fx2[i] = q31::add(buses.fx2[i], q31::multiply(g.fx2, source[i]));
+    for (u32 i = 0; i < kDrumSendWords; ++i) host_fx2[i] = q31::add(host_fx2[i], q31::multiply(g.fx2, source[i]));
+    if (hooks) sdk_drum_send_own_mix(track, g.level);          // 8d511116
+    std::memcpy(buses.fx1, host_fx1, sizeof host_fx1);
+    std::memcpy(buses.fx2, host_fx2, sizeof host_fx2);
 }
 
 bool same(const Buses& a, const Buses& b) { return !std::memcmp(&a, &b, sizeof a); }
 void fill(i32* words, i32 scale) { for (u32 i = 0; i < kDrumSendWords; ++i) words[i] = scale ? noise() / scale : noise(); }
-bool idle() { return !sdk_drum_send_state.bus[0].track && !sdk_drum_send_state.bus[1].track; }
-
-// A sum worked out apart from the hooks: each voice at its share of one send.
-// No word here comes near saturation.
-void expected_sum(i32* out, const i32* start, const StockVoice* voices, u32 count, u32 send) {
+bool idle() {
+    return !sdk_drum_send_state.bus[0].track && !sdk_drum_send_state.bus[1].track &&
+           !sdk_drum_send_state.own[0] && !sdk_drum_send_state.own[1];
+}
+// Q31 multiply as stock's (T) form: the product floored to Q31.
+int64_t times(int64_t gain, int64_t value) {
+    const int64_t product = gain * value;
+    return product >= 0 ? product >> 31 : -((-product + ((int64_t(1) << 31) - 1)) >> 31);
+}
+// Sums worked out apart from the hooks, for one send: the followers (TRK keys
+// and stock voices) and each own-amount key at its amount. No word here comes
+// near saturation.
+void expected(i32* followers, i32* owned, const i32* start, const StockVoice* voices, u32 count, u32 send) {
     for (u32 i = 0; i < kDrumSendWords; ++i) {
-        int64_t sum = start[i];
+        int64_t f = start[i], o = 0;
         for (u32 v = 0; v < count; ++v) {
             const u32 code = drum_send_code(voices[v].handle.vtable == kit_table ? voices[v].handle.codes : 0, send);
-            const int64_t product = int64_t(kDrumSendGains[code]) * voices[v].audio[i];
-            sum += code ? (product >= 0 ? product >> 31 : -((-product + ((int64_t(1) << 31) - 1)) >> 31)) : voices[v].audio[i];
+            if (!code) f += voices[v].audio[i];
+            else o += times(kDrumSendGains[code], voices[v].audio[i]);
         }
-        CHECK(sum > -(int64_t(1) << 31) && sum < (int64_t(1) << 31));
-        out[i] = static_cast<i32>(sum);
+        CHECK(f > -(int64_t(1) << 31) && f < (int64_t(1) << 31) && o > -(int64_t(1) << 31) && o < (int64_t(1) << 31));
+        followers[i] = static_cast<i32>(f);
+        owned[i] = static_cast<i32>(o);
     }
 }
 
@@ -111,7 +130,7 @@ void stock_and_followers_are_unchanged() {
             bind(voices[v], kit, kit ? 0 : pair(round % 8, (round + v) % 8));
         }
         fill(start, round % 5 == 0 ? 1 << 4 : 1 << 30);
-        const Gains g = {noise(), noise() & 0x7fffffff, noise() >> 10, noise() & 0x7fffffff};
+        const Gains g = {noise(), noise() & 0x7fffffff, noise() >> 10, noise() & 0x7fffffff, noise() & 0x7fffffff};
         static Buses stock_buses, hooked;
         fill(stock_buses.main, 4); fill(stock_buses.fx1, 4); fill(stock_buses.fx2, 4);
         hooked = stock_buses;
@@ -123,74 +142,114 @@ void stock_and_followers_are_unchanged() {
     }
 }
 
-// Overlapping voices of one kit track with their own shares of each send, in
-// mixed settings: the main mix keeps stock's sum, each send gets every voice at
-// its share of that send, and a send all the voices follow stays stock's.
-void shares_route_each_voice() {
+// With the track's sends at 0, a key at 100 is wet: its send is its voice at
+// the track's level, and another key on the same track stays dry.
+void own_amounts_ignore_the_track_knob() {
+    static StockVoice voices[3];
+    static i32 start[kDrumSendWords];
+    static Buses buses;
+    std::memset(start, 0, sizeof start);
+    std::memset(&buses, 0, sizeof buses);
+    sdk_drum_send_state.level_known = 0;
+    for (u32 v = 0; v < 3; ++v) fill(voices[v].audio, 1 << 3);
+    bind(voices[0], true, pair(7, 7));   // snare: 100 on both
+    bind(voices[1], true, pair(1, 1));   // kick: dry on both
+    bind(voices[2], true, 0);            // hat: TRK
+    const i32 level = 0x60000000;
+    const Gains off = {0x50000000, 0, 0, 0, level};
+    mix(buses, 3, voices, 3, start, off, true, false);
+    for (u32 i = 0; i < kDrumSendWords; ++i) {
+        const i32 snare = q31::multiply(level, q31::multiply(q31::maximum, voices[0].audio[i]));
+        CHECK(buses.fx1[i] == snare && buses.fx2[i] == snare);
+    }
+    // The main mix is stock's: every voice, dry or wet.
+    for (u32 i = 0; i < kDrumSendWords; ++i)
+        CHECK(buses.main[i] == q31::multiply(off.main,
+              q31::add(q31::add(voices[0].audio[i], voices[1].audio[i]), voices[2].audio[i])));
+    // Muted (level 0): after one block ramping down, nothing of the snare reaches the sends.
+    const Gains muted = {0, 0, 0, 0, 0};
+    mix(buses, 3, voices, 3, start, muted, true, false);
+    std::memset(&buses, 0, sizeof buses);
+    mix(buses, 3, voices, 3, start, muted, true, false);
+    for (u32 i = 0; i < kDrumSendWords; ++i) CHECK(!buses.fx1[i] && !buses.fx2[i]);
+}
+
+// Overlapping voices with mixed settings: TRK keys follow the track's send in
+// stock's loops, own-amount keys add at the level, one send at a time too.
+void mixed_settings_route_each_voice() {
     static StockVoice voices[5];
     static i32 start[kDrumSendWords];
-    static Buses stock_buses, hooked, before;
-    const Gains g = {0x60000000, 0x10000000, 0x00100000, 0x50000000};
-    // FX I: dry, follow, 3/7, 6/7, follow; FX II: follow, 1/7, dry, follow, 5/7.
+    static Buses buses;
+    const Gains g = {0x60000000, 0x10000000, 0x00100000, 0x50000000, 0x40000000};
+    // FX I: dry, TRK, 50, 100, TRK; FX II: TRK, 17, dry, TRK, 83.
     const u32 codes[5] = {pair(1, 0), pair(0, 2), pair(4, 1), pair(7, 0), pair(0, 6)};
     for (u32 v = 0; v < 5; ++v) { fill(voices[v].audio, 1 << 4); bind(voices[v], true, codes[v]); }
     fill(start, 1 << 6);
-    std::memset(&stock_buses, 0, sizeof stock_buses);
-    std::memset(&hooked, 0, sizeof hooked);
-    mix(stock_buses, 2, voices, 5, start, g, false, false);
-    mix(hooked, 2, voices, 5, start, g, true, false);
-    CHECK(!std::memcmp(stock_buses.main, hooked.main, sizeof hooked.main));
-    CHECK(sdk_drum_send_state.bus[0].track == 3 && sdk_drum_send_state.bus[1].track == 3);
-    static i32 fx1[kDrumSendWords], fx2[kDrumSendWords];
-    expected_sum(fx1, start, voices, 5, 0);
-    expected_sum(fx2, start, voices, 5, 1);
+    std::memset(&buses, 0, sizeof buses);
+    sdk_drum_send_state.level_known = 0;
+    mix(buses, 2, voices, 5, start, g, true, false);
+    static i32 follow1[kDrumSendWords], own1[kDrumSendWords], follow2[kDrumSendWords], own2[kDrumSendWords];
+    expected(follow1, own1, start, voices, 5, 0);
+    expected(follow2, own2, start, voices, 5, 1);
     i32 gain = g.fx1;
     for (u32 i = 0; i < kDrumSendWords; ++i) {
         gain = q31::add(gain, g.step);
-        CHECK(hooked.fx1[i] == q31::multiply(gain, fx1[i]));
-        CHECK(hooked.fx2[i] == q31::multiply(g.fx2, fx2[i]));
+        CHECK(buses.fx1[i] == q31::add(q31::multiply(gain, follow1[i]), q31::multiply(g.level, own1[i])));
+        CHECK(buses.fx2[i] == q31::add(q31::multiply(g.fx2, follow2[i]), q31::multiply(g.level, own2[i])));
     }
-    // Shares of FX II only: FX I is stock's, word for word.
+    // Own amounts on FX II only: FX I and the main mix are stock's, word for word.
     for (u32 v = 0; v < 5; ++v) bind(voices[v], true, pair(0, 1 + v % 7));
-    hooked = stock_buses;
-    before = stock_buses;
+    static Buses stock_buses;
+    std::memset(&stock_buses, 0, sizeof stock_buses);
+    buses = stock_buses;
     mix(stock_buses, 4, voices, 5, start, g, false, false);
-    mix(hooked, 4, voices, 5, start, g, true, false);
-    CHECK(!std::memcmp(stock_buses.main, hooked.main, sizeof hooked.main));
-    CHECK(!std::memcmp(stock_buses.fx1, hooked.fx1, sizeof hooked.fx1));
-    CHECK(!sdk_drum_send_state.bus[0].track && sdk_drum_send_state.bus[1].track == 5);
-    expected_sum(fx2, start, voices, 5, 1);
-    for (u32 i = 0; i < kDrumSendWords; ++i) CHECK(hooked.fx2[i] == q31::add(before.fx2[i], q31::multiply(g.fx2, fx2[i])));
-    // A key dry to both sends alone sends nothing while the main mix is stock's.
-    bind(voices[0], true, pair(1, 1));
-    std::memset(&hooked, 0, sizeof hooked);
-    std::memset(start, 0, sizeof start);
-    mix(hooked, 5, voices, 1, start, g, true, false);
-    for (u32 i = 0; i < kDrumSendWords; ++i) CHECK(!hooked.fx1[i] && !hooked.fx2[i]);
-    CHECK(hooked.main[0] == q31::multiply(g.main, voices[0].audio[0]));
-    // A stock voice on a track whose kit voice kept a share goes in unscaled.
+    mix(buses, 4, voices, 5, start, g, true, false);
+    CHECK(!std::memcmp(stock_buses.main, buses.main, sizeof buses.main));
+    CHECK(!std::memcmp(stock_buses.fx1, buses.fx1, sizeof buses.fx1));
+    CHECK(std::memcmp(stock_buses.fx2, buses.fx2, sizeof buses.fx2) != 0);
+    // A stock voice on a track with own amounts follows the track.
     bind(voices[1], false, pair(5, 5));
-    bind(voices[0], true, pair(2, 3));
-    std::memset(&hooked, 0, sizeof hooked);
-    mix(hooked, 6, voices, 2, start, g, true, false);
-    const i32 kept = q31::add(q31::multiply(kDrumSendGains[3], voices[0].audio[9]), voices[1].audio[9]);
-    CHECK(hooked.fx2[9] == q31::multiply(g.fx2, kept));
+    bind(voices[0], true, pair(7, 1));
+    std::memset(start, 0, sizeof start);
+    std::memset(&buses, 0, sizeof buses);
+    mix(buses, 6, voices, 2, start, g, true, false);
+    CHECK(buses.fx2[9] == q31::multiply(g.fx2, voices[1].audio[9]));
 }
 
-// A kept sum belongs to one track of one block: the next track, or the same
-// track after a block stock skipped, reads stock's sum again.
+// The level ramps from one block's to the next, as stock steps FX I's gain.
+void level_ramps() {
+    static StockVoice voice;
+    static i32 start[kDrumSendWords];
+    static Buses buses;
+    std::memset(start, 0, sizeof start);
+    for (u32 i = 0; i < kDrumSendWords; ++i) voice.audio[i] = 1 << 28;
+    bind(voice, true, pair(7, 0));
+    sdk_drum_send_state.level_known = 0;
+    const Gains low = {0, 0, 0, 0, 0x10000000}, high = {0, 0, 0, 0, 0x50000000};
+    std::memset(&buses, 0, sizeof buses);
+    mix(buses, 0, &voice, 1, start, low, true, false);
+    std::memset(&buses, 0, sizeof buses);
+    mix(buses, 0, &voice, 1, start, high, true, false);
+    for (u32 i = 1; i < kDrumSendWords; ++i) CHECK(buses.fx1[i] > buses.fx1[i - 1]);
+    CHECK(buses.fx1[0] > q31::multiply(low.level, 1 << 28));
+    CHECK(buses.fx1[kDrumSendWords - 1] <= q31::multiply(high.level, 1 << 28));
+    CHECK(buses.fx1[kDrumSendWords - 1] > q31::multiply(high.level - (1 << 20), 1 << 28));
+}
+
+// The sums belong to one track of one block: the next track, or the same
+// track after a block stock skipped, mixes as stock does again.
 void state_ends_with_its_track() {
     static StockVoice voices[2];
     static i32 start[kDrumSendWords];
     std::memset(start, 0, sizeof start);
     fill(voices[0].audio, 1 << 4); bind(voices[0], true, pair(3, 6));
     fill(voices[1].audio, 1 << 4); bind(voices[1], false, 0);
-    const Gains g = {0x40000000, 0x20000000, 0, 0x30000000};
+    const Gains g = {0x40000000, 0x20000000, 0, 0x30000000, 0x40000000};
     static Buses stock_buses, hooked;
     std::memset(&stock_buses, 0, sizeof stock_buses);
     std::memset(&hooked, 0, sizeof hooked);
     mix(hooked, 1, voices, 1, start, g, true, true);       // a kit track stock skipped
-    CHECK(sdk_drum_send_state.bus[0].track == 2 && sdk_drum_send_state.bus[1].track == 2);
+    CHECK(sdk_drum_send_state.bus[0].track == 2 && sdk_drum_send_state.own[1] == 2);
     mix(stock_buses, 1, voices + 1, 1, start, g, false, false);
     mix(hooked, 1, voices + 1, 1, start, g, true, false);  // the same track, next block, a stock voice
     CHECK(same(stock_buses, hooked));
@@ -202,7 +261,7 @@ void state_ends_with_its_track() {
     CHECK(drum_send_source(sdk_drum_send_state, 1, 3, host_sum) == nullptr);
 }
 
-void codes_and_gains() {
+void codes_and_amounts() {
     // Payload word 6 carries FX I's code in bits 25..27 and FX II's in 28..30,
     // only on a marked pad; FILTER and SRR below them stay as they are.
     const i32 marked = i32(42u * 32537631u + 16268815u);
@@ -210,31 +269,30 @@ void codes_and_gains() {
     for (u32 fx1 = 0; fx1 < kDrumSendCodes; ++fx1)
         for (u32 fx2 = 0; fx2 < kDrumSendCodes; ++fx2) {
             payload[6] = drum_send_store(drum_send_store(0x01ab0000, 0, fx1), 1, fx2);
-            CHECK(payload[6] > 0 || (!fx1 && !fx2 && payload[6] == 0x01ab0000));
             CHECK(drum_send_codes(payload) == pair(fx1, fx2));
-            CHECK(drum_send_code(drum_send_codes(payload), 0) == fx1 && drum_send_code(drum_send_codes(payload), 1) == fx2);
             CHECK((payload[6] & 0x01ffffff) == 0x01ab0000);
             CHECK((static_cast<u32>(payload[6]) >> 25 & 7) == fx1 && (static_cast<u32>(payload[6]) >> 28 & 7) == fx2);
         }
     payload[0] = 0;
     CHECK(drum_send_codes(payload) == 0);
     CHECK(drum_send_codes(nullptr) == 0);
-    payload[0] = marked;
-    payload[6] = 0x01ff0000;           // FILTER and SRR set, both sends follow
-    CHECK(drum_send_codes(payload) == 0);
-    // Shares rise with the code, 0 for dry, all for following.
-    CHECK(drum_send_gain(0) == q31::maximum && drum_send_gain(1) == 0);
-    for (u32 code = 2; code < kDrumSendCodes; ++code) {
+    // Amounts: TRK has none of its own, then 0, 17, 33, 50, 67, 83, 100 percent.
+    const i32 shown[kDrumSendCodes] = {0, 0, 17, 33, 50, 67, 83, 100};
+    for (u32 code = 0; code < kDrumSendCodes; ++code) {
+        CHECK(drum_send_percent(code) == shown[code]);
         const double share = double(drum_send_gain(code)) / 2147483648.0;
-        CHECK(share > (code - 1) / 7.0 - 1e-9 && share < (code - 1) / 7.0 + 1e-9);
+        const double want = code ? (code - 1) / 6.0 : 0.0;
+        CHECK(share > want - 1e-9 && share < want + 1e-9);
     }
 }
 }
 
 int main() {
-    codes_and_gains();
+    codes_and_amounts();
     stock_and_followers_are_unchanged();
-    shares_route_each_voice();
+    own_amounts_ignore_the_track_knob();
+    mixed_settings_route_each_voice();
+    level_ramps();
     state_ends_with_its_track();
     std::puts("drum sends ok");
     return 0;

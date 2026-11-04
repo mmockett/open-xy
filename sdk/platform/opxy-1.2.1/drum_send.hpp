@@ -1,11 +1,17 @@
-// Per-key sends for synthesis drum kits (resources.padSend, SDK 1.10). Stock
-// mixes a track's voices into one stereo sum and scales that sum into the two
-// send buses, so on its own every key of a kit shares the track's sends. With
-// padSend, the hooks (drum_send.cpp, drum_send_hooks.s) let each key pass its
-// own share of FX I and of FX II: a send bus then reads a second sum, of each
-// voice scaled by its key's share of that send, while the track's own mix keeps
-// stock's sum. A send to which every voice on the track follows the track keeps
-// stock's path for that block.
+// Per-key sends for synthesis drum kits (resources.padSend, SDK 1.10), as a
+// Machinedrum track's own delay and reverb sends. Stock mixes a track's voices
+// into one stereo sum and scales that sum into the two send buses by the
+// track's send amounts. With padSend, a key either follows the track's send
+// (TRK) or sends its own amount, whatever the track's send knob says:
+// - followers still go through stock's send loop at the track's send amount,
+//   which then reads a sum of the followers alone;
+// - a key with its own amount goes into a second sum, each voice scaled by its
+//   key's amount, which the hooks add to the send bus at the track's level
+//   (stock's gain for the track's dry and sends alike, so mute and volume still
+//   apply), as stock would send it with the track's send at full.
+// A send for which every voice on the track follows the track keeps stock's
+// path exactly for that block. drum_send.cpp and drum_send_hooks.s place this
+// in stock's mixer.
 #pragma once
 #include <opxy/audio.hpp>
 #include <opxy/q31.hpp>
@@ -29,30 +35,39 @@ inline i32 drum_send_store(i32 word, u32 send, u32 code) {
     const u32 low = kDrumSendShift + send * kDrumSendCodeBits, mask = (kDrumSendCodes - 1) << low;
     return static_cast<i32>((static_cast<u32>(word) & ~mask) | ((code & (kDrumSendCodes - 1)) << low));
 }
-// The share of the track's send each code passes, in Q31: code c of 1..7
-// passes (c - 1) / 7 (0, 14, 29, 43, 57, 71 and 86 percent); 0 passes all of it.
+// A key's own send amount, in Q31 of the full send: code c of 1..7 sends
+// (c - 1) / 6, that is 0, 17, 33, 50, 67, 83 and 100 percent. Code 0 (TRK) has none.
 const i32 kDrumSendGains[kDrumSendCodes] = {
-    q31::maximum, 0, 306783378, 613566757, 920350135, 1227133513, 1533916891, 1840700270};
+    0, 0, 357913941, 715827883, 1073741824, 1431655765, 1789569707, q31::maximum};
 inline i32 drum_send_gain(u32 code) { return kDrumSendGains[code & (kDrumSendCodes - 1)]; }
+// The amount a code shows, in percent: 0..100 for codes 1..7 (code 0 shows TRK).
+inline i32 drum_send_percent(u32 code) {
+    return code ? static_cast<i32>(((code & (kDrumSendCodes - 1)) - 1) * 100 + 3) / 6 : 0;
+}
 
 // Stock's track sum and a voice's output: 64 interleaved left/right Q31 frames.
 const u32 kDrumSendWords = 2 * block_frames;
+const u32 kDrumSendTracks = 8;
 
-// What a send's hook reads, in this order (drum_send_hooks.s): `track` is the
-// stock track index plus one while that track's send takes `source`, else 0.
+// What a send's source hook reads, in this order (drum_send_hooks.s): `track`
+// is the stock track index plus one while that track's send loop takes
+// `source` (the followers' sum), else 0.
 struct DrumSendBus {
     u32 track;
     i32* source;
 };
-// FX I's, then FX II's.
 struct DrumSendState {
-    DrumSendBus bus[kDrumSends];
+    DrumSendBus bus[kDrumSends];      // FX I's, then FX II's
+    u32 own[kDrumSends];              // the track plus one while it has an own-amount sum for that send
+    i32 level[kDrumSendTracks];       // each track's level the block before, for a smooth ramp
+    u32 level_known;                  // which tracks' level is known
 };
 // Each track's mix starts with no voices of its own.
 inline void drum_send_begin(DrumSendState& state) {
     for (u32 s = 0; s < kDrumSends; ++s) {
         state.bus[s].track = 0;
         state.bus[s].source = nullptr;
+        state.own[s] = 0;
     }
 }
 // Counted, pointer-stepping loops, kept out of line so the compiler sees
@@ -67,33 +82,60 @@ static inline __attribute__((noinline)) void drum_send_add(i32* __restrict to, c
 static inline __attribute__((noinline)) void drum_send_scale(i32* __restrict to, const i32* __restrict from, i32 gain) {
     for (u32 n = kDrumSendWords; n; --n, ++to) *to = q31::add(*to, q31::multiply(gain, *from++));
 }
+// Into a send bus, `from` at a gain ramped linearly from `start` towards `end`
+// over the block, as stock steps FX I's gain (8d5110aa).
+static inline __attribute__((noinline)) void drum_send_ramp(i32* __restrict to, const i32* __restrict from, i32 start, i32 end) {
+    const i32 step = (end >> 7) - (start >> 7);
+    i32 gain = start;
+    for (u32 n = kDrumSendWords; n; --n, ++to) {
+        gain = q31::add(gain, step);
+        *to = q31::add(*to, q31::multiply(gain, *from++));
+    }
+}
 // Before stock adds a voice into the track's sum, for one send. While every
 // voice so far has followed the track, nothing is kept and stock's sum feeds
-// the send. The first voice with a share of its own starts `scratch` as stock's
-// sum so far (with whatever stock started the sum with), and from then on each
-// voice of the track goes into it scaled by its share, a follower unscaled,
-// with stock's saturating add in stock's order, so a follower lands in both
-// sums alike.
-inline void drum_send_bus(DrumSendBus& bus, i32* scratch, u32 track, const i32* sum, const i32* voice, u32 code) {
-    if (!bus.track) {
-        if (!code) return;
-        drum_send_copy(scratch, sum);
-        bus.track = track + 1;
-        bus.source = scratch;
+// the send loop. The first voice with an amount of its own starts `follow` as
+// stock's sum so far (with whatever stock started the sum with) and `own` at
+// silence; from then on a follower goes into `follow`, with stock's saturating
+// add in stock's order, and an own-amount voice into `own` at its amount.
+inline void drum_send_bus(DrumSendBus& bus, u32& own_track, i32* follow, i32* own, u32 track, const i32* sum,
+                          const i32* voice, u32 code) {
+    if (!code) {
+        if (bus.track) drum_send_add(follow, voice);
+        return;
     }
-    if (!code) return drum_send_add(scratch, voice);
+    if (!bus.track) {
+        drum_send_copy(follow, sum);
+        bus.track = track + 1;
+        bus.source = follow;
+    }
+    if (own_track != track + 1) {
+        for (u32 i = 0; i < kDrumSendWords; ++i) own[i] = 0;
+        own_track = track + 1;
+    }
     const i32 gain = drum_send_gain(code);
-    if (gain) drum_send_scale(scratch, voice, gain);
+    if (gain) drum_send_scale(own, voice, gain);
 }
-// Both sends, each into its own scratch sum.
-inline void drum_send_voice(DrumSendState& state, i32 (*scratch)[kDrumSendWords], u32 track, const i32* sum,
-                            const i32* voice, u32 codes) {
+// Both sends: `follow` and `own` hold a sum for each.
+inline void drum_send_voice(DrumSendState& state, i32 (*follow)[kDrumSendWords], i32 (*own)[kDrumSendWords],
+                            u32 track, const i32* sum, const i32* voice, u32 codes) {
     for (u32 s = 0; s < kDrumSends; ++s)
-        drum_send_bus(state.bus[s], scratch[s], track, sum, voice, drum_send_code(codes, s));
+        drum_send_bus(state.bus[s], state.own[s], follow[s], own[s], track, sum, voice, drum_send_code(codes, s));
 }
-// What send `s`'s bus reads for `track`: the kept sum while it is that track's, else stock's.
+// What send `s`'s loop reads for `track`: the followers' sum while it is that track's, else stock's.
 inline const i32* drum_send_source(const DrumSendState& state, u32 s, u32 track, const i32* sum) {
     return state.bus[s].track == track + 1 ? state.bus[s].source : sum;
+}
+// After stock's send loops for `track`: each own-amount sum into its bus at the
+// track's `level`, ramped from the level the block before.
+inline void drum_send_own(DrumSendState& state, i32 (*own)[kDrumSendWords], i32* const* buses, u32 track, i32 level) {
+    if (track >= kDrumSendTracks) return;
+    const u32 bit = 1u << track;
+    const i32 start = state.level_known & bit ? state.level[track] : level;
+    for (u32 s = 0; s < kDrumSends; ++s)
+        if (state.own[s] == track + 1) drum_send_ramp(buses[s], own[s], start, level);
+    state.level[track] = level;
+    state.level_known |= bit;
 }
 
 // A kit declaring padSend, for the voice hook to recognize its voices: its
