@@ -2,6 +2,7 @@
 // control index and encoder event. Keep publication on stock's existing route.
 #include "drum_values.hpp"
 #include "synth_controls.hpp"
+#include "pad_diag.hpp"
 
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine) {
     using namespace opxy;
@@ -10,6 +11,9 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     const DrumMachine* machine = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
     if (!machine) return stock<u32(u32, u32, const u32*, u32)>(0x8d4d5f60)(key, control, event, fine);
     if (!event || control >= kDrumControlCount) return 0;
+    if (machine->pad_mix && shift_held())
+        pad_diag("sdk/pad_diag_edit.cpp", __LINE__, "shift turn ctrl %d delta %d speed %d key %d to per-key editor",
+                 static_cast<int>(control), static_cast<int>(event[1]), static_cast<int>(event[2]), static_cast<int>(key));
     void* region = pad_region(track, key);
     u8 model, controls[kDrumControlCount];
     if (!drum_region_values(*machine, track, key, region, &model, controls)) return 0;

@@ -63,6 +63,7 @@ class DrumServices(unittest.TestCase):
             (folder / 'stock.hpp').write_text(stock)
             # Keep the shared inline decoder beside the mocked stock header.
             (folder / 'drum_values.hpp').write_text((platform / 'drum_values.hpp').read_text())
+            (folder / 'pad_diag.hpp').write_text((platform / 'pad_diag.hpp').read_text())
             sources = []
             for name in ('synth_controls.cpp', 'drum_synthesis_stock.cpp', 'drum_values_stock.cpp', 'drum_machines.cpp'):
                 target = folder / name

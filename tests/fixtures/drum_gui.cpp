@@ -50,6 +50,17 @@ u32 stock_edit(u32, u32, const u32*, u32) { ++fallback; return 1234; }
 u32 turn(u32, u32 selected, u32 slot, u32) { require(selected == track); turned_slot = slot; return slot; }
 const char* title(u32, u32) { return "stock"; }
 u32 text(u32, const char*) { return 0; }
+// The padtest diagnostic's stock logger and the dispatcher's tests it reads.
+u32 logged;
+char last_log[160];
+void stock_log(u32 level, const char* file, u32, const char* format, ...) {
+    require(level == 3 && file && format);
+    ++logged;
+    std::snprintf(last_log, sizeof(last_log), "%s", format);
+}
+u32 step_held() { return 0; }
+u32 drum_check(u32) { return 1; }
+unsigned char diag_flag;
 void shown_at(u32 a, u32 b, u32 c, u32 d, int line) {
     u8 slots[4]; sdk_synth_shown(track, slots);
     require_at(slots[0] == a && slots[1] == b && slots[2] == c && slots[3] == d, line);
@@ -107,6 +118,10 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     case 0x8d5ad5bc: return reinterpret_cast<Address>(&turn);
     case 0x8d506c4c: return reinterpret_cast<Address>(&title);
     case 0x8d6011f0: return reinterpret_cast<Address>(&text);
+    case 0x8c042efc: return reinterpret_cast<Address>(&stock_log);
+    case 0x8d5b7e34: return reinterpret_cast<Address>(&step_held);
+    case 0x8d5b79f0: return reinterpret_cast<Address>(&drum_check);
+    case 0x860c9b3c: return reinterpret_cast<Address>(&diag_flag);
     default: std::abort();
     }
 }
@@ -430,6 +445,33 @@ int main() {
         sdk_drum_edit(57, 6, up, 0);
         require(*word == kept);   // another engine's track starts on its first row again
         shifted = false;
+        engine = 34; key = 53;
+    }
+
+    {
+        // The padtest diagnostic: on a padMix kit with Shift held, a turn that
+        // reaches the per-key editor, one that reaches the track-parameter path
+        // and a press each log a line; nothing logs without Shift or on other kits.
+        engine = 39; key = 53;
+        const u32 up[3] = {0, 1, 0};
+        const u32 before = logged;
+        sdk_drum_edit(53, 6, up, 0);   // no Shift: quiet
+        engine = 37; shifted = true;
+        sdk_drum_edit(53, 6, up, 0);   // not a padMix kit: quiet
+        require(logged == before);
+        engine = 39;
+        sdk_drum_edit(53, 6, up, 0);
+        require(logged == before + 1 && std::strstr(last_log, "per-key editor"));
+        sdk_synth_turn(0, 0, 5, 0);
+        require(logged == before + 2 && std::strstr(last_log, "track params"));
+        sdk_synth_press(0); ++presses;
+        require(logged == before + 3 && std::strstr(last_log, "press enc"));
+        shifted = false;
+        sdk_synth_press(0); ++presses;   // a plain press logs too, for contrast
+        require(logged == before + 4);
+        // It stops at its limit.
+        for (u32 i = 0; i < 300; ++i) sdk_synth_press(1), ++presses;
+        require(logged < before + 300 && std::strstr(last_log, "line limit"));
         engine = 34; key = 53;
     }
 

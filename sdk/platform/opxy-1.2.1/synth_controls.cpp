@@ -6,6 +6,7 @@
 #include "synth_controls.hpp"
 #include <opxy/effect.hpp>
 #include "shift_row.hpp"
+#include "pad_diag.hpp"
 #include "stock.hpp"
 #include "drum_machines.hpp"
 #include "drum_storage.hpp"
@@ -170,6 +171,10 @@ void sdk_synth_press(u32 encoder) {
     const SynthControls* m;
     if (encoder >= opxy::page_controls) return;
     const u32 controller = top_controller_vtable();
+    if (pad_diag_kit(byte(kSelectedTrack)))
+        pad_diag("sdk/pad_diag_press.cpp", __LINE__, "press enc %d shift %d page %d top %08x (instrument %08x)",
+                 static_cast<int>(encoder), static_cast<int>(shift_held()), static_cast<int>(word(kInstrumentPage)),
+                 controller, kInstrumentController);
     if (controller == kInstrumentController && word(kInstrumentPage) == 0 && (m = machine(byte(kSelectedTrack), t))) {
         // A paged synth's or a drum kit's press moves the whole row; a slot the
         // selected key's model leaves unnamed shows blank. A key whose model has
@@ -224,6 +229,15 @@ u32 sdk_param_steps(u32 track, u32 index, u32* scale) {
 // encoders, so an owned synth's position edits the parameter it shows.
 u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
     Track* t;
+    if (shift_held() && pad_diag_kit(track)) {
+        // A Shift turn on a padMix kit that reached the track-parameter path
+        // (8d5ad5bc) instead of the per-key editor: which of stock's tests sent it here.
+        u32 page, step, flag, drum;
+        pad_diag_checks(page, step, flag, drum, track_engine(track));
+        pad_diag("sdk/pad_diag_turn.cpp", __LINE__, "shift turn idx %d to track params: page %d step %d flag %d drum %d",
+                 static_cast<int>(index), static_cast<int>(page), static_cast<int>(step), static_cast<int>(flag),
+                 static_cast<int>(drum));
+    }
     // The instrument controller maps Shift's engine-page row to slots 4..7.
     // Reinterpret it as fine editing of the same visible position, including
     // an alternate selected by a click. Other pages keep stock routing.
