@@ -85,8 +85,9 @@ SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS, 'display')   # display: its o
 # An effect's display (SDK 1.7): it draws its own page on the sends, as a synth does.
 EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display')
 # A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose;
-# and chokeSameKey 1 for a note to cut the voices still sounding its track's same key.
-DRUM_OPTIONS = ('modelGroups', 'chokeSameKey')
+# chokeSameKey 1 for a note to cut the voices still sounding its track's same key; and
+# padSend 1 (SDK 1.10) for each key's own share of the track's sends.
+DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padSend')
 EFFECT_BUFFER_LIMIT = 524288
 # A synth's optional GUI-side track control (opxy/track_control.hpp): its state.
 CONTROL_FIELDS = ('stateBytes', 'stateAlignment')
@@ -189,6 +190,7 @@ def validate_definition(value, kind):
     if kind == 'drum':
         require(2 <= resources['modelCount'] <= 64, 'A drum kit has 2..64 models')
         require(resources.get('chokeSameKey', 0) in (0, 1), 'chokeSameKey must be 0 or 1')
+        require(resources.get('padSend', 0) in (0, 1), 'padSend must be 0 or 1')
         if 'modelGroups' in resources:
             groups = resources['modelGroups']
             require(isinstance(groups, list) and 2 <= len(groups) <= 16, 'modelGroups lists 2..16 groups')

@@ -31,6 +31,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
 | Synthesis drum transport | 12 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
+| Per-key sends | 4 | Lets a drum kit's keys pass their own shares of the track's FX I and FX II sends; linked only with a `padSend` kit |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
 | Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
@@ -54,7 +55,8 @@ The sample rows (sample dispatch, analysis, drum-page services and recorder)
 form the profile's `samples` service (apart from octave publication,
 which is shared with players and drum kits): a build applies those edits, and links
 the SDK code behind them, only when it includes a sample engine or synthesis drum
-kit. Synthesis drum transport is the `drums` service, used only by drum kits.
+kit. Synthesis drum transport is the `drums` service, used only by drum kits, and
+per-key sends the `drum_sends` service, used only by a kit declaring `padSend`.
 Otherwise their sites stay stock. The track control rows (and the project read of the
 project companion rows) form the `control` service in the same way: a build
 uses them only when it includes a machine with [track control](api.md#track-control)
@@ -936,6 +938,42 @@ encoder the model (or a group, with the second the model in it), one the choke g
 and the others nothing. Track modulation is
 applied after decoding. GUI edits repack and use the stock dirty/publication
 calls; no audio callback writes preset state or performs file I/O.
+
+### Per-key sends
+
+Stock mixes a track in the engine block `8d510760`, one instrument track at a
+time. Its voice loop `8d51c708`, called only at `8d510bea`, renders each voice
+into `0x11b01548` (64 interleaved stereo frames, after stock's per-voice pan
+and gain) and adds it with a saturating add into the track's stereo sum at
+`0x11900000` (`8d51c7b0`..`8d51c7d8`). The engine then scales that sum into
+the main mix at a constant gain (`8d511038`), into FX I's bus `0x84ca9940` at a
+gain stepped every word (`8d511088`..`8d5110c8`) and into FX II's bus
+`0x84ca9b40` at a constant gain (`8d5110ca`..`8d51110e`); `8d50f594` then runs
+send slots 14 and 15 on those buses. The gains come from the track's mixer
+record (`0x84eab39c + 0xe8 * track`) and the sends' dry queries. A track stock
+finds silent (`8d51237a`) skips every bus.
+
+A kit with `padSend` keeps each key's two send codes in bits 25..30 of its pad
+word `+0x14` (payload word 6), and the adapter keeps the codes of the block a
+voice last rendered. Four hooks, each replacing one whole instruction outside
+every hardware loop body and replaying it:
+
+- `8d510bea`, the call of the voice loop: resets the per-key state, then jumps
+  to the loop with the engine's arguments and return address.
+- `8d51c7b2`, `P2 = 0x11b01548` before a voice is added: for each send, while
+  every voice so far follows the track nothing is kept; the first voice of the
+  track with a share of its own copies stock's sum so far into a scratch sum,
+  and from then on every voice of the track goes into that scratch sum at its
+  share, a follower or a stock voice unscaled. The voice record's machine
+  object (`+0x94`, `8d51b53e`) identifies a kit's voice by its method table.
+- `8d511088` and `8d5110ca`, `P1 = 0x11900000` before FX I's and FX II's
+  loops: the track's scratch sum for that send when it kept one (the track index
+  is the engine's `[FP + 8]`), otherwise stock's address. Only P1 changes.
+
+Stock's loops do all the mixing, and the main mix always reads stock's sum. A
+send every voice follows, every stock track and every block of a kit whose
+keys all follow are mixed bit for bit as stock mixes them. The source dry
+reduction (`1 - s(1 - d)`) stays the track's.
 
 ## Note players
 

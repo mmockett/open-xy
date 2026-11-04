@@ -72,12 +72,13 @@ def generate_voice(directory, m, sweep=False):
     if m.kind == 'drum':
         values['MODEL_COUNT'] = m.definition['resources']['modelCount']
         values['CHOKE'] = 'true' if m.definition['resources'].get('chokeSameKey', 0) else 'false'
+        values['PAD_SEND'] = 'true' if m.definition['resources'].get('padSend', 0) else 'false'
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
     return append_callback(path, m) if m.kind == 'drum' else path
 
 
 def generate_drum_callbacks(directory, machines):
-    declarations, rows = [], []
+    declarations, rows, sends = [], [], []
     for m in machines:
         if m.kind != 'drum':
             continue
@@ -96,9 +97,16 @@ def generate_drum_callbacks(directory, machines):
         rows.append(f'    {{{p}_engine_id, {p}_record_ready, {m.definition["resources"]["modelCount"]}, '
                     f'{p}_drum_defaults, {p}_drum_label, {p}_drum_model_name, {p}_drum_count, {len(groups)}, '
                     f'{p + "_group_sizes" if groups else "nullptr"}, {p + "_group_names" if groups else "nullptr"}}},')
-    source = '#include "drum_machines.hpp"\nextern "C" {\n' + '\n'.join(declarations) + '\n}\n'
+        if m.definition['resources'].get('padSend', 0):
+            # The mixer's send hooks (drum_send.cpp) know a kit's voices by its method table.
+            declarations += [f'extern const void* const {p}_vtable[];',
+                             f'opxy::u32 {p}_drum_send(const void*) __asm__("{p}_drum_send");']
+            sends.append(f'    {{{p}_vtable, {p}_drum_send}},')
+    source = '#include "drum_machines.hpp"\n#include "drum_send.hpp"\nextern "C" {\n' + '\n'.join(declarations) + '\n}\n'
     source += 'const opxy::platform::DrumMachine sdk_drum_machines[] = {\n' + ('\n'.join(rows) or '    {},') + '\n};\n'
     source += f'const opxy::u32 sdk_drum_machine_count = {len(rows)};\n'
+    source += 'const opxy::platform::DrumSendKit sdk_drum_send_kits[] = {\n' + ('\n'.join(sends) or '    {},') + '\n};\n'
+    source += f'const opxy::u32 sdk_drum_send_kit_count = {len(sends)};\n'
     destination = Path(directory) / 'drum_callbacks.cpp'
     destination.write_text(source, encoding='utf-8', newline='\n')
     return destination
