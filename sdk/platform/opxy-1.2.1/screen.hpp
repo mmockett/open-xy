@@ -307,7 +307,9 @@ inline bool refresh_controls(Base* o, Controls& controls) {
                 titles[i] = drum->pad_label(field);
                 const i32 value = controls.pads[field];
                 if (field >= platform::kDrumKitPadFields) {
-                    if (value) drum_number(values[i], value, "");
+                    // A send's code as the share of the track's send it passes
+                    // (drum_send.hpp): 1..7 are 0..86 percent.
+                    if (value) drum_number(values[i], ((value - 1) * 100 + 3) / 7, "");
                     else copy_text(values[i], "TRK");
                 } else if (!drum->pad_text || !drum->pad_text(field, value, values[i])) {
                     drum_number(values[i], value, "");
