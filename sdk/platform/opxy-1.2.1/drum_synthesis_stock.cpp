@@ -21,11 +21,36 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     if (delta < -127) delta = -127;
     unsigned char* record = static_cast<unsigned char*>(region);
     u8 mark = drum_mark(record[24]);
-    // Shift's encoders: a kit with groups chooses the group, the model in it
-    // and the choke group on the first three; one without, the model and the
-    // choke group on the first two.
-    const bool grouped = machine->group_count != 0;
-    if (grouped && control == 4) {
+    i32* pad_word = static_cast<i32*>(region) + kDrumPadWord / 4;
+    // A padMix kit's first edit of a key it has not set up sets the key up
+    // (drum_storage.hpp): neutral pad fields, 0 dB and the mark. Until then the
+    // key played at 0 dB with every field neutral, whatever stock had left in
+    // the pad word and the level byte, so setting it up changes nothing heard.
+    const bool setup = machine->pad_mix && !drum_ready(record);
+    i32 pad = setup ? static_cast<i32>(kDrumPadReady) : *pad_word;
+    i32 pan = drum_pan(record), level = setup ? 0 : drum_level(record);
+    // Shift's encoders (stock's indices 4..7) choose what DrumMachine::shift
+    // names for their position and the row the encoders are on.
+    u8 shown[page_controls];
+    sdk_synth_shown(track, shown);
+    const DrumMachine::Shift choice = control >= page_controls
+        ? machine->shift(control - page_controls, shown[0] >= page_controls) : DrumMachine::kShiftNone;
+    if (choice == DrumMachine::kShiftPan || choice == DrumMachine::kShiftLevel) {
+        // Stock's own pad fields, edited as stock's editor does (8d4d60b0,
+        // 8d4d60d8); level as a cut.
+        const bool panning = choice == DrumMachine::kShiftPan;
+        i32& value = panning ? pan : level;
+        const i32 now = value;
+        i32 step = panning ? static_cast<i32>(event[2]) + 1 : 1;
+        if (step < 1) step = 1;
+        if (step > 200) step = 200;
+        i32 next = now + step * delta;
+        const i32 low = panning ? -kDrumPanLimit : kDrumLevelFloor, high = panning ? kDrumPanLimit : kDrumLevelCeiling;
+        if (next < low) next = low;
+        if (next > high) next = high;
+        if (next == now) return 0;
+        value = next;
+    } else if (choice == DrumMachine::kShiftGroup) {
         // A group keeps the model's place in it, so BD stays BD across groups.
         const u32 group = machine->group(model);
         i32 next = static_cast<i32>(group) + delta;
@@ -34,37 +59,42 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
         if (next == static_cast<i32>(group)) return 0;
         const u32 place = model - machine->group_first(group), size = machine->group_sizes[next];
         model = static_cast<u8>(machine->group_first(static_cast<u32>(next)) + (place < size ? place : size - 1));
-    } else if (grouped && control == 5) {
-        const u32 first = machine->group_first(machine->group(model));
-        const i32 last = static_cast<i32>(first + machine->group_sizes[machine->group(model)]) - 1;
+    } else if (choice == DrumMachine::kShiftModel) {
+        // The model, as on stock Drumline (8d4d6028 steps its instrument
+        // type), within its group if the kit chooses groups on Shift (a padMix
+        // kit scrolls them all). Its controls stay.
+        const bool within = machine->group_count && !machine->pad_mix;
+        const u32 first = within ? machine->group_first(machine->group(model)) : 0;
+        const i32 last = static_cast<i32>(within ? first + machine->group_sizes[machine->group(model)]
+                                                 : machine->model_count) - 1;
         i32 next = static_cast<i32>(model) + delta;
         if (next < static_cast<i32>(first)) next = static_cast<i32>(first);
         if (next > last) next = last;
         if (next == model) return 0;
         model = static_cast<u8>(next);
-    } else if (control == (grouped ? 6u : 5u)) {
-        // Shift and the encoder after the model choose the key's choke group.
-        const i32 choice = static_cast<i32>(drum_choke(record[24]));
-        i32 next = choice + delta;
+    } else if (choice >= DrumMachine::kShiftPad) {
+        // One of the key's pad fields: one step a detent within its bits.
+        u32 low, bits;
+        bool sign;
+        if (!machine->pad_field(choice - DrumMachine::kShiftPad, low, bits, sign)) return 0;
+        const i32 now = drum_field_get(pad, low, bits, sign);
+        i32 next = now + delta;
+        if (next < drum_field_min(bits, sign)) next = drum_field_min(bits, sign);
+        if (next > drum_field_max(bits, sign)) next = drum_field_max(bits, sign);
+        if (next == now) return 0;
+        pad = drum_field_set(pad, low, bits, next);
+    } else if (choice == DrumMachine::kShiftChoke) {
+        const i32 now = static_cast<i32>(drum_choke(record[24]));
+        i32 next = now + delta;
         if (next < 0) next = 0;
         if (next >= static_cast<i32>(kDrumChokeChoices)) next = static_cast<i32>(kDrumChokeChoices) - 1;
-        if (next == choice) return 0;
+        if (next == now) return 0;
         mark = drum_mark_choke(static_cast<u32>(next));
-    } else if (control == 4) {
-        // Shift and the first encoder choose the key's model, as on stock
-        // Drumline (8d4d6028 steps its instrument type). Its controls stay.
-        i32 next = static_cast<i32>(model) + delta;
-        if (next < 0) next = 0;
-        if (next >= static_cast<i32>(machine->model_count)) next = static_cast<i32>(machine->model_count) - 1;
-        if (next == model) return 0;
-        model = static_cast<u8>(next);
     } else if (control >= page_controls) {
-        // Stock maps Shift's encoders to indices 4..7; the rest turn nothing.
+        // A Shift encoder with nothing to choose turns nothing.
         return 0;
     } else {
         // The encoders' discrete steps are already one unit a detent.
-        u8 shown[page_controls];
-        sdk_synth_shown(track, shown);
         const u32 slot = shown[control % page_controls];
         if (slot >= kDrumControlCount || !machine->used(model, slot)) return 0;
         i32 next = static_cast<i32>(controls[slot]) + delta;
@@ -75,6 +105,11 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     }
     if (!drum_pack(model, controls, static_cast<i32*>(region) + 1, drum_codec(machine->model_count, machine->count))) return 0;
     record[24] = mark;
+    *pad_word = pad;
+    if (machine->pad_mix) {
+        record[kDrumPan] = static_cast<unsigned char>(static_cast<signed char>(pan));
+        record[kDrumLevel] = static_cast<unsigned char>(static_cast<signed char>(level));
+    }
     stock<void()>(0x8d585ee8)();
     stock<void(u32)>(0x8d4d5f18)(key);
     return 0;
