@@ -47,7 +47,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # and gives each key of a drum kit a mixer channel of its own on Shift: pan, level, small
 # controls and sends (resources.padMix, which implies the sends and locks pan, level,
 # small controls and sends per hit, resources.padControls and resources.padSend). Every
-# kit's voices run stock's track filter (M3).
+# kit's voices run stock's track filter (M3), and a kit's drum_transport gets the tempo
+# before every render.
 SDK_VERSION = (1, 10)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -107,6 +108,7 @@ class Machine:
     dry_level: int | None = None  # a fixed source dry, Q31 (SDK 1.7)
     requested: dict = None  # the numbers machine.json asks for, when a layout gave others
     grayscale: str | None = None
+    sdk: tuple = (1, 0)  # the SDK version machine.json declares, (major, minor)
 
     @property
     def sample_page(self):
@@ -506,7 +508,7 @@ def machine_at(root, identity=None):
                    definition=definition,
                    identity=requested, preset_defaults=defaults,
                    root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets, samples=samples,
-                   grayscale=grayscale)
+                   grayscale=grayscale, sdk=version)
     if grayscale:
         from .native import validate_panel
         validate_panel(result)
