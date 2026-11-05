@@ -17,7 +17,7 @@
 //   of the dbox render (drumline.cpp) keeps each voice's payload from its first
 //   block, applies SRR and then FILTER to the voice's mono block after stock's
 //   level and envelope, and hands the send codes to the per-key send hooks
-//   (drum_send.hpp), which mix them as a padSend kit's.
+//   (drum_send.hpp), which mix them as a padMix kit's.
 // - Locks: with a step held, a turn on page 2 locks that field for the step's
 //   hits of the key stock edits, an offset in the step-lock handles' pool
 //   (lock_handles.hpp) under fields 8.. (drumline_pool_field), apart from a

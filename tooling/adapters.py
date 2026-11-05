@@ -77,8 +77,6 @@ def generate_voice(directory, m, sweep=False):
         values['PAD_COUNT'] = len(pads)
         values['PAD_BITS'] = ', '.join(str(f['bits']) for f in pads) or '1'
         values['PAD_SIGNS'] = sum(1 << i for i, f in enumerate(pads) if f.get('signed'))
-        # padMix implies the per-key sends: its Shift row edits FX I and FX II.
-        values['PAD_SEND'] = 'true' if sends_per_key(m) else 'false'
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
     return append_callback(path, m) if m.kind == 'drum' else path
 
@@ -90,10 +88,9 @@ def pad_mix(m):
 
 
 def sends_per_key(m):
-    """Whether a drum kit's keys keep their own share of the track's sends: padSend, or
-    padMix, whose Shift row edits FX I and FX II."""
-    resources = m.definition['resources']
-    return m.kind == 'drum' and bool(resources.get('padSend', 0) or resources.get('padMix', 0))
+    """Whether a drum kit's keys keep their own share of the track's sends: padMix, whose
+    Shift row edits FX I and FX II."""
+    return m.kind == 'drum' and bool(m.definition['resources'].get('padMix', 0))
 
 
 def generate_drum_callbacks(directory, machines):
@@ -796,8 +793,9 @@ def default_preset(m):
 
 def preset_files(m):
     """The machine's init preset, then its own presets (tooling.machines.read_presets):
-    each a version 4 preset of this machine, pointing at no samples. Its own
-    default replaces the generated init preset (builder/core.mjs presetFiles)."""
+    each a version 4 preset of this machine, pointing at no samples or, for a sample
+    engine shipping its own (SDK 1.10), at one of those. Its own default replaces the
+    generated init preset (builder/core.mjs presetFiles)."""
     path = preset_path(m)
     if not path:
         return {}

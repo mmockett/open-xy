@@ -69,6 +69,16 @@ bool opxy::platform::step_locks::held_set(opxy::u32, opxy::u32 key, opxy::u32 fi
     ++held_sets;
     return true;
 }
+// The same calls as every build links them (startup.cpp's, into the drum_locks
+// service): synth_controls.cpp and drum_values_stock.cpp reach the handles here.
+extern "C" opxy::u32 sdk_project_locks_held_value(opxy::u32 track, opxy::u32 key, opxy::u32 field, opxy::i32* value) {
+    return value && opxy::platform::step_locks::held_value(track, key, field, *value);
+}
+extern "C" opxy::u32 sdk_project_locks_held_set(opxy::u32 track, opxy::u32 key, opxy::u32 field, opxy::u32 present,
+                                                opxy::i32 value) {
+    return opxy::platform::step_locks::held_set(track, key, field, present != 0, value);
+}
+extern "C" void sdk_project_locks_frame() {}
 
 namespace {
 using namespace opxy;

@@ -483,28 +483,49 @@ chooses the model (MACHINE: every model in turn; in a kit with groups the
 cell's title is the model's group, `TRX` over `BD`), the choke group (CHOKE), and the key's own pan (PAN)
 and level (LEVEL), as on stock Drumline: pan -100..100 with 0 centred, moving
 faster on a fast turn as stock's does, and level in whole dB, -30..0, one a
-detent, shown as `-6dB`. Pan and level are stock's own pad fields, so projects
-and presets keep them with the key. Stock pans every voice of a kit already;
-the SDK applies the level, as a cut: a key a stock kit had boosted plays at
-0 dB, so a voice stays within its declared `outputPeakQ31`. On the encoders'
-second row Shift edits the key's pad fields: the kit's own pad controls on the
-first two encoders, then FX I and FX II, 0..7, where 0 (`TRK`) follows the
-track's send. Every key of such a kit has the second row, a model with four or
-fewer controls too, whose encoders there are blank. Shift always edits the row
-the encoders are on; the display's `line` says which. A press of any encoder
-switches the row with Shift held too, so Shift and a press reach the second
-row without letting go.
+detent, shown as `-6dB`. Pan and level are stock's own pad fields. Stock pans
+every voice of a kit already; the SDK applies the level, as a cut, so a voice
+stays within its declared `outputPeakQ31`. On the encoders' second row Shift
+edits the key's pad fields: the kit's own pad controls on the first two
+encoders, then its FX I and FX II sends. Every key of such a kit has the
+second row, a model with four or fewer controls too, whose encoders there are
+blank. Shift always edits the row the encoders are on; the display's `line`
+says which. A press of any encoder switches the row with Shift held too, so
+Shift and a press reach the second row without letting go.
+
+Each key of a `padMix` kit has its own FX I and FX II sends, as a Machinedrum
+track has its own delay and reverb sends: a kick can stay dry while the snare
+is wet, even with the track's send knobs at 0. A send at 0 (`TRK`) follows the
+track's send exactly; 1..7 send the key's own amount, shown as 0, 17, 33, 50,
+67, 83 or 100, whatever the track's send knob says: a key at N sends what the
+track's knob at N would, through the same curve stock gives that send's knob.
+An amount scales the voice after stock's pan, level and envelope, and the
+track's level and mute still apply to it. The track's own mix is unchanged,
+and so is the source dry reduction of a send effect with a Dry control. The
+kit's DSP never sees the sends ([firmware](abi-1.2.1.md#per-key-sends)).
+
+A key plays its level, pad controls and sends once the kit has set it up: the
+kit's first edit of a key does that, with its level at 0 dB and every pad field
+at 0, so the key sounds as it did. Until then a key plays at 0 dB with every
+pad field neutral, whatever stock or an earlier SDK build left in its pad
+record, so projects saved before SDK 1.10, and keys a stock kit filled, play as
+before. Projects keep a key's settings, and copying a pad copies them. A
+preset keeps all of a key's settings too: loading one on a `padMix` kit sets
+up every key the preset stores (its regions marked `fm slap`), with the level,
+pad controls and sends the preset holds (a region's `gain`, and its `random`,
+the pad word's top half: pad controls from bit 0, FX I's code at bits 9..11 and
+FX II's at 12..14) ([firmware](abi-1.2.1.md#synthesis-drum-kits)).
 
 A `padMix` kit may declare up to two small settings of each key's own in
 `resources.padControls` (SDK 1.10), such as a filter and a sample-rate
 reduction: a list of `{"label": "FILTER", "bits": 5, "signed": true}`, each with
-a label of at most eight letters, digits, spaces or hyphens, 1..8 bits
-(`signed`, at least 2, is two's complement, so the field runs -16..15 in five
-bits), together at most 9 bits. They step one a detent. 0 is neutral in every
-field, and a key the kit has never stored reads 0. The pad fields are kept in a
-stock pad word that stock saves with the project, copies with a pad and keeps
-through the kit's own edits. Before every render the adapter passes the played
-key's pad controls to
+a label of at most eight letters, digits, spaces or hyphens, and 1..7 bits, or
+2..8 when `signed` (two's complement, so the field runs -16..15 in five bits),
+together at most 9 bits. A value always fits the display's signed byte. They
+step one a detent. 0 is neutral in every field, and a key the kit has not set
+up reads 0. The pad fields are kept in a stock pad word that stock saves with
+the project and copies with a pad. Before every render the adapter passes the
+played key's pad controls to
 
 ```cpp
 void drum_pad(Voice&, Shared&, opxy::u32 owner, const opxy::i32* values);   // optional; one per declared field
@@ -514,8 +535,7 @@ bool pad_control_text(opxy::u32 field, opxy::i32 value, char* text);        // o
 in the machine namespace; `pad_control_text` captions a value for the stock
 header (without it, or when it returns false, the number shows). The display's
 `pad` holds the selected key's pad fields. A kit's own header captions them
-itself. FX I and FX II are stored and shown; the mixer that plays them is a
-separate change.
+itself.
 
 Every kit's track runs stock's own track filter on its voices, as a synth
 track does (SDK 1.10). M3 is the filter, with stock's types (svf, ladder, z
@@ -561,19 +581,19 @@ companion, `open-xy.locks` ([projects](projects.md#open-xylocks)), behind a
 storage interface (`drum_lock_store.hpp`). A pasted copy is a copy: editing it
 leaves the original. Limits and what is not kept:
 
-- A project holds about 2,400 locked steps with one field for one key (24 KiB
-  of values; a step with four fields takes 16 bytes). Once the pool is full a
-  turn locks nothing more; unlocking makes room again.
-- Opened or saved on firmware without these locks (stock, or an older build),
-  a project keeps its steps' handles only while its companion still matches it;
-  otherwise its per-hit locks are cleared when it is next opened here.
+- A project holds 2,457 locked steps with one field for one key (24 KiB of
+  values; a step with four fields takes 16 bytes). Once the pool is full a turn
+  locks nothing more; unlocking makes room again.
+- The values are saved in the companion, before track control's state, which
+  gets the room the locks leave.
+- Saved on firmware without these locks (stock, or a build without a `padMix`
+  kit), a project keeps its steps' handles but not their values, which play
+  nothing from then on. Opened there and not saved, it keeps both.
 - Turning these fields while recording records nothing; lock them by hand.
 - With slide on, these locks don't slide: each hit plays its step's own.
 - Synths have no such locks.
 
-Projects saved with SDK 1.10 builds before the filter kept PAN, LEVEL and
-pad-control locks on M3's words: those steps now lock the filter instead, so
-clear them. The engine's eight controls lock as before
+The engine's eight controls lock as before
 ([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)).
 
 In the machine namespace, declare these callbacks in `core.h` and implement
@@ -624,22 +644,6 @@ choke groups Shift chooses, which stock applies to keys sharing a group. A
 synth or an effect cannot declare it; sample engines have their own
 `chokeSameKey` (see [Services](#services)).
 
-With `"padSend": 1` in `resources` (SDK 1.10; 0 or 1, omitted means 0), each
-key has its own FX I and FX II sends, as a Machinedrum track has its own delay
-and reverb sends: a kick can stay dry while the snare is wet, even with the
-track's send knobs at 0. Each send has a 3-bit code in stock's pad word
-`+0x14`, FX I's in bits 25..27 and FX II's in 28..30 (`drum_send.hpp`), saved
-with the project and copied with the pad. Code 0 (`TRK`) follows the track's
-send exactly, so a pad saved before, or one the kit has not marked, plays as it
-did; codes 1..7 send the key's own amount, shown as 0, 17, 33, 50, 67, 83 or
-100, whatever the track's send knob says: a key at N sends what the track's
-knob at N would, through the same curve stock gives that send's knob. An
-amount scales the voice after stock's pan, level and envelope, and the track's
-level and mute still apply to it.
-The track's own mix is unchanged, and so is the source dry reduction of a send
-effect with a Dry control. The kit's DSP never sees the codes
-([firmware](abi-1.2.1.md#per-key-sends)).
-
 A kit's engine may also report that a voice's sound has ended, so stock
 retires its note and the voice is free for the next one before stock's
 amplitude envelope ends:
@@ -677,7 +681,7 @@ machine declares it.
     high-pass above (`H50` .. `H4.0k`), MD KIT's filter and captions;
   - SRR (`OFF`, `22k` … `689`): a sample-and-hold of 2 to 64 samples;
   - FX I and FX II: `TRK`, which follows the track's send, or the key's own
-    amount 0..100, as a `padSend` key's.
+    amount 0..100, as a `padMix` key's.
 
   The page is kept per track and shown in place of page 1's four names and
   values (stock's page has four of each, so the two pages cannot stack as an SDK
@@ -785,7 +789,8 @@ to use as it chooses; stock's own loop does not apply to it. Stock's loop crossf
 (Shift + encoder 3) and loop mode (Shift + encoder 3 press) aren't offered:
 `SampleBlock` doesn't carry them. `stockShift` needs an own screen and SDK 1.10.
 While Shift is held, the screen's input `shift` is 1, so it can show what Shift
-edits; the [overview](display.md#sample-overview) gives the start and the end. The
+edits; the [overview](display.md#sample-overview) gives the start, the end and the
+gain. The
 stock sample browser and recorder are unaffected.
 
 ### Services
@@ -797,8 +802,8 @@ means 0. Callbacks are functions in the machine's namespace.
 | --- | --- | --- | --- |
 | `stereoOutput` | 0 or 1 | Output is 64 interleaved left/right frames | |
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
-| `padControls` | Up to two `{label, bits, signed}` fields, 9 bits in all; needs `padMix` | Each key's own small settings on Shift's second row ([drum kits](#synthesis-drum-kits)) | `drum_pad`, `pad_control_text` |
-| `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift: the model, choke group and each key's stock pan and level; on the second row the key's pad fields; a held step locks pan, level, pad controls and sends per hit ([drum kits](#synthesis-drum-kits)) | |
+| `padControls` | Up to two `{label, bits, signed}` fields, 1..7 bits each (2..8 signed), 9 in all; needs `padMix` | Each key's own small settings on Shift's second row ([drum kits](#synthesis-drum-kits)) | `drum_pad`, `pad_control_text` |
+| `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift: the model, choke group and each key's stock pan and level; on the second row the key's pad controls and its own FX I and FX II sends; a held step locks pan, level, pad controls and sends per hit ([drum kits](#synthesis-drum-kits)) | |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
@@ -1071,6 +1076,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | `icon` | Optional builder glyph: SVG path data in a 46 × 48 box, drawn as a stroke. The kind's glyph is used otherwise |
 | `presetDefaults` | Optional `{"amp": {...}}` overriding generated factory preset envelope values: `attack`, `decay`, `release` and `sustain`, each 0..32767. It does not rewrite existing projects or presets |
 | `presets` | Optional folder inside the machine folder holding the machine's own [presets](#presets); `sdk` 1.3, instruments only |
+| `samples` | Optional folder inside the machine folder holding a sample engine's own [samples](#own-samples), which its presets load; `sdk` 1.10, sample engines forking the sampler |
 | `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for a synth's developer-authored [grayscale artwork](display.md#grayscale-artwork); `sdk` 1.5 |
 
 An effect's optional `dryParameter` field names the control used by the stock
@@ -1092,8 +1098,62 @@ firmware that holds it.
 - At most 16 presets, each at most 16 KiB.
 - Each is a version 4 OP-XY preset whose `type` is the machine's ID, with
   eight engine `params` from 0 to 32767 and no sample `regions`, since a
-  preset never points into a user's sample library. Other fields stay as the
-  device saved them.
+  preset never points into a user's sample library. A sample engine shipping
+  its [own samples](#own-samples) may point at those instead. Other fields stay
+  as the device saved them.
+
+#### Own samples
+
+From SDK 1.10 a sample engine forking the sampler (`"base": "sampler"`) can ship
+samples of its own, so its init preset and its other presets open with a sound
+loaded instead of an empty track. `machine.json` `samples` names a folder of
+`<name>.wav` files, and `sdk.py build` installs each as
+`content/samples/<id>/<name>.wav`. They live in the OP-XY's content storage, not
+in the module memory: stock loads one into its sample memory when a preset
+pointing at it is loaded, as it loads any other sample, and the player can still
+load another sample over it.
+
+Ship only audio you made yourself or may redistribute under the machine's
+licence: never the OP-XY's own content, and no commercial, library or other
+third-party sounds you can't relicense. Say in a `README.md` in the samples
+folder where each sample comes from, how it was made and under which licence it
+ships. Catalog review checks it.
+
+- A name is lowercase letters, digits, `-` and `_`, at most 24. Other files in
+  the folder, except `.md` and hidden files, are refused.
+- At most 4 samples, each at most 2 MiB: a WAV file of plain 16-bit PCM
+  (format 1, not `WAVE_FORMAT_EXTENSIBLE`) at 44.1 kHz, mono or stereo.
+- Every sample is loaded by at least one of the machine's [presets](#presets), so
+  `samples` needs `presets`.
+- A preset points at one in its single sampler region, as stock saves a sample
+  engine's preset. Its `sample` is the installed path,
+  `content/samples/<id>/<name>.wav`; its `framecount` is the sample's frame
+  count; `sample.start` (0 if absent) and `sample.end` lie inside it, and the
+  loop markers inside them. `pitch.keycenter` and `hikey` are 0..127, `gain`
+  is -30..20 dB, and `reverse` and the loop flags are true or false. `tune`,
+  `pan`, `fade.in`, `fade.out` and `loop.crossfade` stay 0: the SDK doesn't
+  record their saved ranges yet.
+- Presets name the file, so it is installed once however many presets use it.
+  A machine without `samples` keeps empty `regions`.
+- Projects and presets name a sample by its path. Treat a shipped sample as
+  fixed: replacing or removing it under the same name changes or silences every
+  project and preset that loads it, and builds never delete files an earlier
+  build installed. Give new or changed audio a new name.
+- The files share `content/samples/` with whatever else is on the OP-XY. The SDK
+  doesn't record the names of stock's own sample folders, so it can't refuse a
+  machine ID that matches one: check the device's `/content/samples/` before
+  choosing a sample engine's ID.
+- The browser builder doesn't install samples yet. Its kit still offers the
+  machine and its presets, but not the samples: there each preset opens with no
+  sample loaded, as a sample engine's presets did before. `sdk.py build`
+  installs the samples and the presets as they are.
+
+```json
+"regions": [{"sample": "content/samples/mysampler/pad.wav", "framecount": 264600,
+  "sample.start": 0, "sample.end": 264600, "pitch.keycenter": 48, "hikey": 127,
+  "gain": 0, "tune": 0, "reverse": false, "loop.start": 0, "loop.end": 264600,
+  "loop.crossfade": 0, "loop.onrelease": false}]
+```
 
 ### Identity
 
