@@ -9,6 +9,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
+#include "drumline.hpp"
+// Built without the build option drumlinePage2: the generated startup defines it null.
+const opxy::platform::Drumline* const sdk_drumline = nullptr;
 
 extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
