@@ -1,5 +1,6 @@
 """Opt-in synth stereo contract: real adapters and asymmetric L/R audio."""
 import copy
+import json
 import os
 from pathlib import Path
 import shutil
@@ -10,6 +11,7 @@ import unittest
 
 from tooling.adapters import generate_voice, generate_voice_preview
 from tooling.definitions import validate_definition
+from tooling.machines import machine_at
 from tooling.preview import VOICE_EXPORTS, FLAGS, MEMORY
 from tooling import cpu
 from machine_fixtures import fixture
@@ -94,12 +96,28 @@ class StereoSynth(unittest.TestCase):
         del value['resources']['stereoOutput']
         validate_definition(value, 'synth')
 
+    def test_explicit_mono_needs_no_new_sdk(self):
+        # stereoOutput 0 is the default spelled out: a 1.1 machine may declare it.
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp).resolve() / 'probesynth'
+            shutil.copytree(fixture('probesynth').root, folder)
+            path = folder / 'definition.json'
+            value = json.loads(path.read_text())
+            for flag in (0, 1):
+                value['resources']['stereoOutput'] = flag
+                path.write_text(json.dumps(value))
+                if flag:
+                    with self.assertRaisesRegex(ValueError, '1.12'):
+                        machine_at(folder)
+                else:
+                    machine_at(folder)
+
     def test_omitted_stereo_flag_matches_explicit_mono(self):
         # Mono uses the current upstream allocator, exercised by test_voices.
         # An explicit zero must not select the separate Field voice adapter.
         value = definition()
         del value['resources']['stereoOutput']
-        m = SimpleNamespace(definition=value, prefix='probe', native_name='probe')
+        m = SimpleNamespace(definition=value, prefix='probe', native_name='probe', kind='synth')
         with tempfile.TemporaryDirectory() as folder:
             source = generate_voice(folder, m).read_text()
             self.assertIn('i < opxy::block_frames;', source)
@@ -111,7 +129,7 @@ class StereoSynth(unittest.TestCase):
     def test_native_vtable_and_silence_canaries(self):
         with tempfile.TemporaryDirectory() as folder:
             folder = Path(folder)
-            m = SimpleNamespace(definition=definition(), prefix='probe', native_name='probe')
+            m = SimpleNamespace(definition=definition(), prefix='probe', native_name='probe', kind='synth')
             generate_voice(folder, m)
             (folder / 'core.h').write_text(CORE)
             (folder / 'engine.cpp').write_text(ENGINE)

@@ -96,7 +96,7 @@ class SynthRelease(unittest.TestCase):
             with self.assertRaises(ValueError): validate_definition(value,'synth')
         with tempfile.TemporaryDirectory() as folder:
             del value['resources']['releaseCallback']
-            m=SimpleNamespace(definition=value,prefix='probe',native_name='probe')
+            m=SimpleNamespace(definition=value,prefix='probe',native_name='probe',kind='synth')
             absent=generate_voice(folder,m).read_bytes()
             value['resources']['releaseCallback']=0
             self.assertEqual(absent,generate_voice(folder,m).read_bytes())
@@ -111,7 +111,7 @@ class SynthRelease(unittest.TestCase):
             p=Path(tmp)
             (p/'core.h').write_text(CORE)
             (p/'engine.cpp').write_text(ENGINE)
-            generate_voice(p,SimpleNamespace(definition=definition(),prefix='probe',native_name='probe'))
+            generate_voice(p,SimpleNamespace(definition=definition(),prefix='probe',native_name='probe',kind='synth'))
             generate_voice_preview(p,definition())
             for name,source in [('native',NATIVE),('host',HOST)]:
                 (p/(name+'.cpp')).write_text(source)
