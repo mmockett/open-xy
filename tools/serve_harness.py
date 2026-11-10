@@ -18,6 +18,7 @@ ALLOWED = {
     '/sdk/browser/graphics.mjs': 'sdk/browser/graphics.mjs',
     '/harness/graphics.mjs': 'harness/graphics.mjs',
     '/harness/graphics.css': 'harness/graphics.css',
+    '/sdk/browser/encoder_activity.mjs': 'sdk/browser/encoder_activity.mjs',
     '/': 'harness/index.html',
     '/harness/': 'harness/index.html',
     **{f'/harness/{name}': f'harness/{name}' for name in
@@ -57,7 +58,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(data)))
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
         self.end_headers()
         if not head:
             self.wfile.write(data)

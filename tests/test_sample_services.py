@@ -81,6 +81,7 @@ class SampleServices(unittest.TestCase):
                     (ROOT / 'sdk/platform/opxy-1.2.1/screen_drawing.hpp').read_bytes())
                 (Path(folder) / 'retained_drawing.hpp').write_bytes(
                     (ROOT / 'sdk/platform/opxy-1.2.1/retained_drawing.hpp').read_bytes())
+                shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/glyph_atlas.hpp', Path(folder) / 'glyph_atlas.hpp')
                 (Path(folder) / 'screen.hpp').write_bytes(
                     (ROOT / 'tests/fixtures/screen_drawing_host.hpp').read_bytes())
                 (Path(folder) / 'amp_envelope.hpp').write_bytes(

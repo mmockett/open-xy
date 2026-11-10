@@ -78,6 +78,9 @@ def machine_entry(m, profile, sources, output, preview_cxx):
                  identity=requested, controls=[p['label'] for p in m.definition['parameters']],
                  positions=control_positions(m.definition), pages=paged(m.definition))
     entry['catalog'] = catalog_entry(m)
+    if m.display not in ('stock', 'player'):
+        # A full-canvas display (SDK 1.12) installs without the stock header shell (core.mjs).
+        entry['fullCanvas'] = m.definition['resources']['display'].get('fullCanvas', 0)
     # Where the machine comes from, for the builder to show (core.mjs validOrigin): a
     # catalog machine is Open-XY's own only when maintainers list it (catalog.OFFICIAL).
     entry['origin'] = ('personal' if m.id not in sources
@@ -122,6 +125,8 @@ def machine_entry(m, profile, sources, output, preview_cxx):
 
 def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
     profile, machines, definitions = native.configuration(native.package_collection(package))
+    require(not any(m.kind == 'synth' and m.definition['resources']['display'].get('audioWords') for m in machines),
+            'Audio/display transport currently requires a native build; browser firmware export is unsupported')
     sources = catalog_sources(machines, personal)
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     runtime_members = document(package / 'analysis/compile-report.json').get('runtime', [])

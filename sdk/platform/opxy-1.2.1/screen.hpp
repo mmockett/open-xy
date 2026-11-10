@@ -10,6 +10,7 @@
 #include "drum_machines.hpp"
 #include "drum_storage.hpp"
 #include "drum_send.hpp"
+#include "path_geometry.hpp"
 
 namespace opxy { namespace screen { namespace {
 
@@ -33,7 +34,6 @@ struct PathNode {
     u32 stock116;
     Vector commands;  // 32-byte records: x, y, ..., type byte at +24
 };
-struct Command { i32 x, y; u32 stock8[4]; unsigned char type, stock25[7]; };
 // The loaded artwork: its fill (4-byte) and stroke (20-byte) palette records.
 struct Document { u32 stock0[25]; Vector fills; u32 stock112[5]; Vector strokes; };
 // The stock control parameter vector: eight Q31 words from begin.
@@ -172,15 +172,17 @@ inline bool read_shown(const Parameters* p, Controls& controls, u32 (&view)[para
 // An effect's own page on send track 14 or 15 (SDK 1.7): stock shows the page
 // its record names there, and names and captions nothing on it, so the page
 // does, each frame: the effect's titles and captions, or its shift row's.
-inline bool send_controls(Base* o, Controls& controls) {
+inline bool send_controls(Base* o, Controls& controls, bool full_canvas = false) {
     platform::SendView view;
     if (!sdk_send_view(controls.track, &view)) return false;
     for (u32 i = 0; i < parameter_slots; ++i) controls.slots[i] = view.slots[i];
     for (u32 i = 0; i < page_controls; ++i) {
         controls.shown[i] = view.shown[i];
         controls.values[i] = view.values[i];
-        set_text(o->titles[i], view.titles[i]);
-        set_text(o->values[i], view.texts[i]);
+        if (!full_canvas) {
+            set_text(o->titles[i], view.titles[i]);
+            set_text(o->values[i], view.texts[i]);
+        }
     }
     controls.shift = view.shift;
     for (u32 i = 0; i < 4; ++i) controls.choices[i] = view.choices[i];
@@ -209,9 +211,9 @@ inline void drum_number(char (&out)[16], i32 value, const char* unit) {
 // The shared opening of every frame: once the artwork and all four value and
 // title nodes exist, stock updates the control titles and percentage values of
 // the shown parameters. False when there is nothing to draw yet.
-inline bool refresh_controls(Base* o, Controls& controls) {
+inline bool refresh_controls(Base* o, Controls& controls, bool full_canvas = false) {
     if (!o->svg) return false;
-    for (u32 i = 0; i < 4; ++i)
+    if (!full_canvas) for (u32 i = 0; i < 4; ++i)
         if (!o->values[i] || !o->titles[i]) return false;
     controls.track = selected_track();
     controls.shift = 0;
@@ -221,7 +223,7 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     controls.line = 0;
     for (u32 i = 0; i < platform::kDrumPadFields; ++i) controls.pads[i] = 0;
     for (u32 i = 0; i < 4; ++i) controls.choices[i] = 0;
-    if (send_controls(o, controls)) return true;
+    if (send_controls(o, controls, full_canvas)) return true;
     sdk_synth_shown(controls.track, controls.shown);
     controls.line = controls.shown[0] >= page_controls ? 1 : 0;
     for (u32 i = 0; i < page_controls; ++i) controls.values[i] = 0;
@@ -269,6 +271,7 @@ inline bool refresh_controls(Base* o, Controls& controls) {
             words[i] = static_cast<u32>(controls.values[i]);
         }
     }
+    if (full_canvas) return true;
     update_controls(o, controls.track, controls.valid ? &view : stock_vector);
     if (controls.valid) {
         // While Shift is held, each encoder names and shows what it chooses

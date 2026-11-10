@@ -1158,9 +1158,13 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
     for (const m of machines.filter(m => m.artwork)) {
       check(/^[a-z][a-z0-9_]*\.svg$/.test(m.asset), 'Invalid artwork filename');
       check(files['content/display/' + m.asset] === undefined, 'Display asset collision: ' + m.asset);
+      // A full-canvas display (SDK 1.12) owns the whole screen: no stock header shell.
+      const fullCanvas = m.fullCanvas ?? m.preview?.graphics?.fullCanvas ?? 0;
+      check(fullCanvas === 0 || fullCanvas === 1, 'Invalid full canvas flag');
+      const shell = fullCanvas ? '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"></svg>' : baseSvg;
       try {
         const fragment = selectArtwork(m, graphicsForMachine(m, {graphics, graphicsOverrides}));
-        const artwork = baseSvg.replace('</svg>', fragment + '</svg>');
+        const artwork = shell.replace('</svg>', fragment + '</svg>');
         files['content/display/' + m.asset] = utf8.encode(artwork);
       } catch (error) {
         throw new Error('Could not prepare ' + m.id + ' graphics: ' + error.message + '. Keep this machine’s original design or use corrected artwork.');

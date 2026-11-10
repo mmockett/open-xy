@@ -16,7 +16,7 @@ namespace opxy { namespace screen { namespace {
 // One typed GUI state, input and frame; never accessed by audio callbacks.
 binding::DisplayState display_state;
 u32 display_activation;
-draw::Input display_input;
+binding::DisplayInput display_input;
 binding::Frame display_frame;
 
 // A drum kit's display is struck only by its selected pad's notes. Audio and
@@ -68,10 +68,12 @@ template <class Machine> struct Drawing {
     static void init(Object* o) {
         clear(o);
         display_activation=0;
+        binding::audio_screen_reset();
         binding::display_reset(&display_state,&display_frame);
         if(!o->base.svg)return;
-        bind_controls(&o->base);
+        if (!binding::full_canvas) bind_controls(&o->base);
         Renderer::bind(o,Machine::ids);
+        Renderer::template bind_glyphs<Machine>(o);
     }
 
     static void animate(Object* o, const Controls& controls) {
@@ -105,18 +107,22 @@ template <class Machine> struct Drawing {
         if (Machine::sample) sdk_sample_overview_update(controls.track);
         platform::amp_envelope(controls.track, display_input.amp);
         display_input.reduced_motion = 0;
+        binding::snapshot_audio(display_input);
+        binding::snapshot_encoders(display_input);
         binding::display_render(&display_state, &display_input, &display_frame);
+        binding::finish_audio(display_input);
         if (!binding::display_valid(&display_frame)) return;
-        Renderer::apply(o,display_frame);
+        if (!Renderer::apply(o,display_frame)) return;
         // Keep the drum Shift page blank; other screens share header overrides.
-        if (!controls.choosing) apply_header(&o->base, display_frame);
+        // A full-canvas display draws its own header, so stock's values stay unset.
+        if (!controls.choosing && !binding::full_canvas) apply_header(&o->base, display_frame);
     }
 
     // Incoming elapsed time is the dispatcher's, in Q10 seconds.
     static void frame(Object* o, i32 elapsed) {
         o->delta = elapsed;
         Controls controls;
-        if (!refresh_controls(&o->base, controls)) return;
+        if (!refresh_controls(&o->base, controls, binding::full_canvas)) return;
         animate(o, controls);
         draw(&o->base);
     }

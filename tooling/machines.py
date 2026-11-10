@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, paged, shift_parameters, stock_name, validate_definition
+from .definitions import ANALYSIS_HEAP_LIMIT, DISPLAY_FIELDS, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, paged, shift_parameters, stock_name, validate_definition
 from .contributors import validate_native_assembly
 from .formats import require
 from .pipeline import config
@@ -50,7 +50,12 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # and calls a kit's drum_transport with the tempo before every render.
 # 1.11 lets a track control play notes on instrument tracks, take its own encoder turns
 # and pass sixteen words to its display.
-SDK_VERSION = (1, 11)
+# 1.12 adds stereo synths (resources.stereoOutput), a synth's voice release callback
+# (resources.releaseCallback), audio/display transport (display audioWords, audioTransport),
+# physical encoder activity, a full-canvas screen and extended retained drawing: up to
+# 32 paths sharing 256 points, affine nodes, cubic, open, segmented, quadratic and
+# counted paths, RGBA paint, hidden nodes and an owned glyph atlas.
+SDK_VERSION = (1, 12)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -518,6 +523,12 @@ def machine_at(root, identity=None):
     if kind == 'drum' and any(definition['resources'].get(k) for k in ('padMix', 'padControls')):
         # One gate for a kit's per-key mixer: pan, level, pad controls and sends.
         require_sdk(version, (1, 10), "A drum kit's per-key mixer (padMix, padControls)")
+    resources = definition['resources']
+    display = resources.get('display', {})
+    if (kind == 'synth' and any(resources.get(k) for k in ('stereoOutput', 'releaseCallback')) or
+            any(k not in DISPLAY_FIELDS for k in display) or
+            display.get('paths', 0) > 4 or display.get('points', 0) > 64):
+        require_sdk(version, (1, 12), 'Extended synth and display capabilities')
     if definition['resources'].get('sliceTiming'):
         require_sdk(version, (1, 7), 'A sample slicing clock (sliceTiming)')
     if 'bufferBytes' in definition['resources']:
