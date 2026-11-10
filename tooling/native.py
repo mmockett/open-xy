@@ -336,7 +336,8 @@ def absent_symbols(m):
         if m.kind == 'drum':
             # The shared drum table names these.
             absent.update({m.prefix + suffix: 'kit_absent' for suffix in
-                           ('_drum_defaults', '_drum_label', '_drum_model_name', '_drum_count')})
+                           ('_drum_defaults', '_drum_label', '_drum_model_name', '_drum_count',
+                            '_drum_scramble_range')})
             if sends_per_key(m):
                 # The send table names these; no voice's method table is kit_absent.
                 absent.update({m.prefix + suffix: 'kit_absent' for suffix in ('_vtable', '_drum_send')})
