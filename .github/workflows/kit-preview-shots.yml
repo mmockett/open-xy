@@ -1,0 +1,54 @@
+name: Kit preview shots
+# Fork-only: build MD KIT's and a synth's browser previews, a builder around them, and
+# screenshot it with headless Chrome. Not part of any pull request.
+on:
+  push:
+    branches: [builder/kit-previews-shots]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  shots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: python -m pip install numpy==2.3.5
+      - name: Clang and wasm-ld
+        run: |
+          if ! command -v clang++ >/dev/null || ! command -v wasm-ld >/dev/null; then
+            sudo apt-get -o Acquire::Retries=3 update
+            sudo apt-get -o Acquire::Retries=3 install -y clang lld
+          fi
+      - name: Machines at MD KIT's catalog commit
+        run: |
+          commit=$(python -c "import json;print(next(e['commit'] for e in json.load(open('catalog/machines.json'))['machines'] if e['id']=='mdkit'))")
+          git init -q "$RUNNER_TEMP/mnmd"
+          git -C "$RUNNER_TEMP/mnmd" fetch -q --depth 1 https://github.com/mmockett/OP-XY-MNMD "$commit"
+          git -C "$RUNNER_TEMP/mnmd" checkout -q FETCH_HEAD
+      - name: Collection with previews
+        run: python .github/shots/kit.py "$RUNNER_TEMP/shots/kit" "$RUNNER_TEMP/mnmd/machines/mdkit" "$RUNNER_TEMP/mnmd/machines/mmsaw"
+      - name: Builder site
+        run: |
+          npm ci
+          OPEN_XY_KIT="$RUNNER_TEMP/shots/kit/kit.json" OPEN_XY_OUT_DIR="$RUNNER_TEMP/shots/site" npx vite build --config vite.config.mjs
+      - name: Screenshots
+        run: |
+          npm i --no-save puppeteer-core@23.11.1
+          (cd "$RUNNER_TEMP/shots/site" && python -m http.server 8920 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          sleep 1
+          node .github/shots/shots.mjs http://127.0.0.1:8920 "$RUNNER_TEMP/shots/out"
+          cat "$RUNNER_TEMP/shots/out/report.json"
+          cat "$RUNNER_TEMP/shots/out/console.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kit-preview-shots
+          path: ${{ runner.temp }}/shots/out
