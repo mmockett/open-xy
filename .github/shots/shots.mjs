@@ -9,6 +9,8 @@ mkdirSync(out, {recursive:true});
 const browser = await puppeteer.launch({executablePath:process.env.CHROME ?? '/usr/bin/google-chrome',
   args:['--no-sandbox', '--autoplay-policy=no-user-gesture-required']});
 const page = await browser.newPage();
+// The page's CSP keeps fetch to 'self'; reading the dialog's blob images back needs it lifted.
+await page.setBypassCSP(true);
 await page.setViewport({width:1360, height:1000, deviceScaleFactor:2});
 const log = [], report = {};
 page.on('console', m => log.push(`${m.type()}: ${m.text()}`));
