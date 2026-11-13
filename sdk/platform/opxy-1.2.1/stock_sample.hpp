@@ -1,4 +1,4 @@
-// Stock OS 1.2.1 sample layouts: the sample object the allocator publishes,
+// Stock OS 1.2.0 sample layouts: the sample object the allocator publishes,
 // the pad record the GUI edits, the region record audio reads, and how the SDK
 // keeps machine settings in them. Every raw sample offset lives here.
 #pragma once
@@ -25,7 +25,7 @@ inline SampleView stock_sample_view(const void* opaque) {
 // file loads truncated.
 const u32 kLoaderFrames = 882000;
 
-// The 32-byte pad record the GUI edits (from stock 8d58926c): words, then bytes.
+// The 32-byte pad record the GUI edits (from stock 8d587904): words, then bytes.
 namespace pad_record {
 const u32 kFrames = 0, kStart = 1, kEnd = 2;  // outer markers; words 3/4 are inner loop markers
 const u32 kFade = 5;                          // stock fade word; carries SDK pad settings
@@ -51,17 +51,10 @@ inline unsigned char pad_byte(const void* raw, u32 offset) { return static_cast<
 // nonnegative fade word: stock converts it through binary32 on project save.
 struct SavedSettings { PadSettings value; bool saved; };
 inline SavedSettings sample_settings(u32 word) {
-    const bool legacy = (word & 0xff80007fu) == 0x5a800000u;
-    const bool extended = (word & 0xfe00007fu) == 0x5c000000u;
-    return SavedSettings{legacy ? (word >> 7) & 65535u : extended ? (word >> 7) & 262143u : 0,
-                         legacy || extended};
+    const bool valid = (word & 0xff80007fu) == 0x5a800000u;
+    return SavedSettings{static_cast<PadSettings>(valid ? (word >> 7) & 65535u : 0), valid};
 }
-inline u32 sample_store_settings(PadSettings value) {
-    // Retain the original representation for existing 16-bit machines. Both
-    // tags are positive integers with seven zero low bits: binary32 is exact.
-    return value <= 65535u ? 0x5a800000u | (value << 7) :
-                            0x5c000000u | ((value & 262143u) << 7);
-}
+inline u32 sample_store_settings(PadSettings value) { return 0x5a800000u | (u32(value) << 7); }
 inline SavedSettings saved_settings(const void* raw) { return sample_settings(pad_word(raw, pad_record::kFade)); }
 inline void store_pad_settings(void* raw, PadSettings value) {
     static_cast<u32*>(raw)[pad_record::kFade] = sample_store_settings(value);
@@ -189,12 +182,12 @@ inline void sample_gui_pitch(void* raw, i32 cents) {
     bytes[pad_record::kRoot] = static_cast<unsigned char>(root);
     bytes[pad_record::kFine] = static_cast<unsigned char>(root * 100 - (kNeutralRootCents - cents));
 }
-// Stock note-start (8d51ab30 / 8d51ac8c): parameter 52 spans -36..36.
+// Stock note-start (8d519f40 / 8d51a09c): parameter 52 spans -36..36.
 inline i32 sample_track_transpose(i32 value) {
     if (value < 0) value = 0;
     return i32(((u32(value) >> 8) * 73u) >> 23) - 36;
 }
-// Same 24-pad map as stock 8d5b8688, using an already-published octave.
+// Same 24-pad map as stock 8d5b6800, using an already-published octave.
 // This arithmetic helper is safe in audio: it does not access GUI projects.
 inline u32 sample_drum_key(u32 key, i32 octave) {
     return 53u + static_cast<u32>((i32(key) + 19 + 12 * (octave % 2)) % 24);

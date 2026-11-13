@@ -1,4 +1,4 @@
-// Stock OS 1.2.1 side of the analysis progress overlay: the GUI frame hook
+// Stock OS 1.2.0 side of the analysis progress overlay: the GUI frame hook
 // and the stock popup it shares with other notifications. GUI role only; no
 // audio caller enters these. Device-only: the host fixture supplies doubles.
 #include "sample_machines.hpp"
@@ -17,14 +17,14 @@ namespace {
 using opxy::u32;
 using namespace opxy::platform;
 const volatile unsigned char* bytes(u32 address) { return reinterpret_cast<const volatile unsigned char*>(address); }
-const u32 kPopupState = 0x840579dc;     // bytes: shown, persistent
-const u32 kPopupText = 0x84eb5bc4;      // stock string: +4 inline data or pointer, +20 size, +24 capacity
+const u32 kPopupState = 0x84054538;     // bytes: shown, persistent
+const u32 kPopupText = 0x84ebea18;      // stock string: +4 inline data or pointer, +20 size, +24 capacity
 }
 
-// 8d51ea08: once per GUI frame, before stock draws it.
+// 8d51de40: once per GUI frame, before stock draws it.
 u32 sdk_sample_progress_frame(u32 frame) {
     sdk_sample_gui_tick();
-    return stock<u32(u32)>(0x8d5213f4)(frame);
+    return stock<u32(u32)>(0x8d52082c)(frame);
 }
 // Only an analysis machine on the selected track, outside the sample browser, may notify.
 int sdk_sample_progress_context() {
@@ -32,7 +32,7 @@ int sdk_sample_progress_context() {
     const u32 track = byte(kSelectedTrack);
     return track < kTracks && sample_analysis(track_engine(track));
 }
-int sdk_sample_popup_active() { return stock<int()>(0x8d5492b0)(); }
+int sdk_sample_popup_active() { return stock<int()>(0x8d5486c8)(); }
 // A shared popup is ours only while it shows exactly our last text, transiently.
 int sdk_sample_popup_matches(const char* text, unsigned length) {
     const volatile unsigned char* state = bytes(kPopupState);
@@ -48,5 +48,5 @@ int sdk_sample_popup_matches(const char* text, unsigned length) {
 }
 // Stock takes the duration as binary32 bits in its fourth argument; no floating point here.
 void sdk_sample_popup_publish(const char* text, unsigned seconds_bits) {
-    stock<void(const char*, u32, u32, u32)>(0x8d549168)(text, 1, 0, seconds_bits);
+    stock<void(const char*, u32, u32, u32)>(0x8d548580)(text, 1, 0, seconds_bits);
 }

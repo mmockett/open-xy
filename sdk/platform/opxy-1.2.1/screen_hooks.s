@@ -1,10 +1,10 @@
-/* The stock GUI compositor's loop advance at 8d5214c2, R7 += 1; R0 = 81;
+/* The stock GUI compositor's loop advance at 8d5208fa, R7 += 1; R0 = 81;
  * CC = R7 < R0, before IF CC JUMP to the loop head, which paints page R7 from
  * the slot P4 points to and post-increments P4. R7 and P4 are callee-saved, so
  * they are passed to C++ (screen_order.cpp.in) in memory; [P5] is the page
  * stock selected for this frame. Returns the loop condition in CC; R0 is dead.
  */
-.include "sdk/platform/opxy-1.2.1/hook.inc"
+.include "sdk/platform/opxy-1.2.0/hook.inc"
 .section .text
 .align 2
 .extern sdk_screen_next
@@ -27,7 +27,7 @@ sdk_screen_advance:
     RTS;
 .size sdk_screen_advance, .-sdk_screen_advance
 
-/* 8d53b636: the send page's value-text CALL 0x8d6011f0 (R0 = widget, R1 =
+/* 8d53aa6e: the send page's value-text CALL 0x8d5ff080 (R0 = widget, R1 =
  * text), inside the loop over positions. R7 holds the position and P5 the
  * parameter vector, whose first field [P5 + 4] points to its Q31 words (stock
  * reads word i there and prints it as 00-99); R7 and P5 are callee-saved, so

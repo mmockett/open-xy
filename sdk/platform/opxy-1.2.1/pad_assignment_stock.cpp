@@ -1,4 +1,4 @@
-// Stock OS 1.2.1 side of sample assignment for owned pads: the header worker's
+// Stock OS 1.2.0 side of sample assignment for owned pads: the header worker's
 // frame-count hook, the region initializer hooks of file loads and completed
 // recordings, and the retry decision. Stock calls the three hooks with the
 // ordinary C ABI (each replaces a CALL to the function it forwards to); the
@@ -26,12 +26,12 @@ opxy::u32 sdk_sample_retry(opxy::u32, opxy::u32) __asm__("sdk_sample_retry");
 namespace {
 using opxy::u32;
 using namespace opxy::platform;
-const u32 kJob = 0x0801f440;                // header worker job: +0 raw key, +4 track, +12 generation
-const u32 kActiveGeneration = 0x0801f44c;
-const u32 kPendingGeneration = 0x0801f2e8;
-const u32 kActivePath = 0x0801f424;         // the worker's own path, never the browser's pending choice
-const u32 kWorkerBusy = 0x0801f404;         // byte
-const u32 kInitializeRegion = 0x8d589b8c;   // (track, key, ...) initializes a new pad region
+const u32 kJob = 0x0801f7f8;                // header worker job: +0 raw key, +4 track, +12 generation
+const u32 kActiveGeneration = 0x0801f804;
+const u32 kPendingGeneration = 0x0801f6a0;
+const u32 kActivePath = 0x0801f7dc;         // the worker's own path, never the browser's pending choice
+const u32 kWorkerBusy = 0x0801f7bc;         // byte
+const u32 kInitializeRegion = 0x8d588224;   // (track, key, ...) initializes a new pad region
 const u32 kStockRate = 44100;   // the recorder's rate; assumed without verified header metadata
 bool owned(u32 track) { return track < kTracks && pad_settings(track_engine(track)); }
 
@@ -61,15 +61,15 @@ u32 assign_owned(u32 track, u32 key, u32 frames, u32 last, u32 rate, const u32* 
 }
 }
 
-// 8c0a22fe: the header worker holds this reader until its completion is
+// 8c0a2cee: the header worker holds this reader until its completion is
 // queued. Keep stock's full frame count; the rate is another constant-time getter.
 u32 sdk_sample_assignment_frames(u32 reader) {
-    const u32 frames = stock<u32(u32)>(0x8d4fd436)(reader);
+    const u32 frames = stock<u32(u32)>(0x8d4fd146)(reader);
     hint.valid = 0;
     barrier();
     const u32 track = word(kJob + 4), key = word(kJob), generation = word(kJob + 12);
     if (!owned(track)) return frames;
-    hint.rate = stock<u32(u32)>(0x8d4fd41c)(reader);
+    hint.rate = stock<u32(u32)>(0x8d4fd12c)(reader);
     hint.track = track;
     hint.key = key;
     hint.generation = generation;
@@ -79,7 +79,7 @@ u32 sdk_sample_assignment_frames(u32 reader) {
     return frames;
 }
 
-// 8c0a23f4: stock initializes a new region for a loaded file. For an owned
+// 8c0a2de4: stock initializes a new region for a loaded file. For an owned
 // pad, let the machine combine saved settings with metadata from this exact
 // job. Stock has replaced the path but not yet reset pad metadata.
 u32 sdk_sample_assign_region(u32 track, u32 key, u32 third, u32 fourth, u32 fifth, u32 frames, u32 last) {
@@ -98,7 +98,7 @@ u32 sdk_sample_assign_region(u32 track, u32 key, u32 third, u32 fourth, u32 fift
     return assign_owned(track, key, frames, last, rate, path, false);
 }
 
-// 8c0a4440: the recorder initializes the region of its completed file at the
+// 8c0a4fa8: the recorder initializes the region of its completed file at the
 // raw target key. It records at 44.1 kHz and has no header job, so the
 // worker's hint is neither used nor consumed, even if key and frames match.
 u32 sdk_sample_record_region(u32 track, u32 key, u32 third, u32 fourth, u32 fifth, u32 frames, u32 last) {

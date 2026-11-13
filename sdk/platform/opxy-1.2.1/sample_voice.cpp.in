@@ -42,9 +42,9 @@ static const void* published_sample() {
 }
 
 // Audio-role globals.
-static const opxy::u32 kTrackParameters = 0x84eab39c;  // per-track words, stride 0xe8 (stock 8d518d94)
+static const opxy::u32 kTrackParameters = 0x84eb3bc8;  // per-track words, stride 0xe8 (stock 8d5181a4)
 static const opxy::u32 kTransposeParameter = 0xd0;
-static const opxy::u32 kVoiceRegion = 0x0803b9c4;      // region record of the voice being rendered
+static const opxy::u32 kVoiceRegion = 0x84ebba70;      // region record of the voice being rendered
 
 static opxy::i32 track_transpose(opxy::u32 track) {
     if (track >= opxy::platform::kTracks) return 0;

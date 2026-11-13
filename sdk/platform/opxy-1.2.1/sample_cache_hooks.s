@@ -2,7 +2,7 @@
  * preserve every other register. The decisions are C++ in
  * sample_cache_stock.cpp. Neither hook is on the audio callback path.
  */
-.include "sdk/platform/opxy-1.2.1/hook.inc"
+.include "sdk/platform/opxy-1.2.0/hook.inc"
 .section .text
 .align 2
 .extern sdk_sample_cache_old_sum
@@ -20,15 +20,15 @@ sdk_sample_cache_snapshot:
     RTS;
 .size sdk_sample_cache_snapshot, .-sdk_sample_cache_snapshot
 
-/* Replaces R3 = B[P5 + 100] (Z), the priority byte of the cache message P5
- * builds; stock stores R3 next. */
+/* Replaces R0 = B[P5 + 100] (Z), the priority byte of the cache message P5
+ * builds. Stock branches on CC after this load, which is preserved. */
 .global sdk_sample_cache_ipc_priority
 .type sdk_sample_cache_ipc_priority, STT_FUNC
 sdk_sample_cache_ipc_priority:
     HOOK_SAVE
     R0 = P5;
     CALL sdk_sample_cache_message_priority;
-    HOOK_RESULT_R3 R0
+    HOOK_RESULT R0
     HOOK_RESTORE
     RTS;
 .size sdk_sample_cache_ipc_priority, .-sdk_sample_cache_ipc_priority

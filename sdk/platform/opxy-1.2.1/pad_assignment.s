@@ -3,7 +3,7 @@
  * region initializer call, whose return address the fade hook recognizes.
  * The decisions are C++ in pad_assignment_stock.cpp.
  */
-.include "sdk/platform/opxy-1.2.1/hook.inc"
+.include "sdk/platform/opxy-1.2.0/hook.inc"
 .section .text
 .align 2
 .extern sdk_sample_retry
@@ -27,16 +27,16 @@
 .size \name, .-\name
 .endm
 
-/* 8c0a1bbc: active-file equality. Returning to the active file after queuing
+/* 8c0a219c: active-file equality. Returning to the active file after queuing
  * another must update the pending request, or its stale path equality
  * discards A in A/B/A. */
-RETRY sdk_sample_active_retry, 0, P4, 0x0801, 0xf424
-/* 8c0a1bd6: pending-path equality. A stale header completion retries the
+RETRY sdk_sample_active_retry, 0, P4, 0x0801, 0xf7dc
+/* 8c0a21c0: pending-path equality. A stale header completion retries the
  * pending path, which stock's duplicate check drops even with the worker idle. */
-RETRY sdk_sample_pending_retry, 1, P5, 0x0801, 0xf408
+RETRY sdk_sample_pending_retry, 1, R5, 0x0801, 0xf7c0
 
 /* R0=track, R1=raw key, R2=settings, stack: frames, last, canonical key. Calls stock
- * 8d589b8c(track, key, 60, 0, frames, frames, last) with the settings at
+ * 8d588224(track, key, 60, 0, frames, frames, last) with the settings at
  * FP-8 and the canonical key at FP-12, and the return address
  * sdk_sample_assign_owned_return, which is how the fade hook below recognizes
  * this call without shared state. */
@@ -55,7 +55,7 @@ sdk_sample_assign_owned:
     R2 = 0;
     [SP + 12] = R2;
     R2 = 60;
-    P0 = 0x8d589b8c;
+    P0 = 0x8d588224;
     CALL (P0);
 .global sdk_sample_assign_owned_return
 sdk_sample_assign_owned_return:
@@ -63,7 +63,7 @@ sdk_sample_assign_owned_return:
     RTS;
 .size sdk_sample_assign_owned, .-sdk_sample_assign_owned
 
-/* Only the fade conversion at 8d589c40 is redirected here. Stock initializer
+/* Only the fade conversion at 8d5882d8 is redirected here. Stock initializer
  * LINK 0 leaves its caller's return PC at [FP+4]. Recognizing our owned call
  * site scopes this override without shared state or changing other callers.
  * Its explicit inner-marker args skip the earlier 20%/80% conversions. */

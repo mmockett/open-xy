@@ -11,23 +11,6 @@ namespace opxy { namespace platform {
 // slot after it (stock's post-incremented slot pointer).
 struct ScreenCursor { u32 page; u32 slot; };
 
-struct ScreenActivation {
-    u32 page, track, serial, observed;
-    // Zero denotes an inactive page, including when the serial wraps.
-    void advance_serial() { if (!++serial) ++serial; }
-    void select(u32 next) {
-        if (page != next) { page = next; observed = 0; advance_serial(); }
-    }
-    u32 token(u32 requested, u32 selected_track) {
-        // Background renderers must not consume the selected track's change.
-        if (!page || page != requested) return 0;
-        if (!observed || track != selected_track) {
-            track = selected_track; observed = 1; advance_serial();
-        }
-        return serial;
-    }
-};
-
 template <u32 Slots> struct ScreenOrder {
     u32 promoted;  // this frame's owned selected page, or 0
 

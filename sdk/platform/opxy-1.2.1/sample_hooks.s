@@ -2,7 +2,7 @@
  * decisions are C++ (sample_machines.cpp, drum_controls_stock.cpp); these
  * stubs only save state, call it and replay or deliver what stock expects.
  */
-.include "sdk/platform/opxy-1.2.1/hook.inc"
+.include "sdk/platform/opxy-1.2.0/hook.inc"
 .section .text
 .align 2
 .extern sdk_sample_alias
@@ -27,11 +27,9 @@ extensions_sample_classify:
 
 /* Replaces R5 = 30; CC = R7 == R5 in stock's note-region dispatcher (R7 =
  * engine; stock's frame restores R7 on return). sdk_sample_note_route decides:
- * kStockRoute (0) runs stock's test. kOwnedSampler (3) selects the sampler's
- * payload (R7 = 2), which stock's test then routes as the sampler (CC = 0).
- * Otherwise the owned engine selects the multisampler payload (R7 = 30); the
- * track and factory keep the real engine either way. kOwnedNearest (1) keeps
- * the nearest-region test; kOwnedDrumPads (2) skips it (CC = 0). */
+ * kStockRoute (0) runs stock's test; otherwise the owned engine selects the
+ * multisampler payload (R7 = 30) while the track and factory keep the real
+ * engine, and kOwnedDrumPads (2) also skips the nearest-region test (CC = 0). */
 .global extensions_sample_note_region
 .type extensions_sample_note_region, STT_FUNC
 extensions_sample_note_region:
@@ -43,24 +41,27 @@ extensions_sample_note_region:
     CC = R5 == 0;
     IF CC JUMP .Lnote_nearest;
     CC = R5 == 3;
-    IF CC JUMP .Lnote_sampler;
+    IF CC JUMP .Lnote_synthesis;
     R7 = 30;
     CC = R5 == 1;
     IF CC JUMP .Lnote_nearest;
     R5 = 30;
     CC = R5 == 0;
     RTS;
-.Lnote_sampler:
-    R7 = 2;
+.Lnote_synthesis:
+    R7 = 4;
+    R5 = 30;
+    CC = R7 == R5;
+    RTS;
 .Lnote_nearest:
     R5 = 30;
     CC = R7 == R5;
     RTS;
 .size extensions_sample_note_region, .-extensions_sample_note_region
 
-/* Entry of stock's key-to-region lookup (R0 = track, R1 = key). sdk_sample_key
- * returns region 0 for an owned page-2 engine, the canonical pad of an owned
- * drum page, or -1 to continue stock with every register as it arrived. */
+/* Entry of stock's drum key lookup (R0 = track, R1 = key). sdk_sample_key
+ * returns the canonical pad of an owned drum page, or -1 to continue stock
+ * with every register as it arrived. */
 .global extensions_sample_key
 .type extensions_sample_key, STT_FUNC
 extensions_sample_key:

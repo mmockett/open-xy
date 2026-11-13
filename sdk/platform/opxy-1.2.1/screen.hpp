@@ -1,4 +1,4 @@
-// Stock OS 1.2.1 screen objects for SDK displays: the stock object layout,
+// Stock OS 1.2.0 screen objects for SDK displays: the stock object layout,
 // helpers and the shared renderer shell. Stock calls every method-table entry
 // with the C ABI (the object in R0). Each machine's generated screen.cpp
 // includes the drawing renderer (screen_drawing.hpp) once, so everything here
@@ -7,14 +7,16 @@
 #include "opxy/types.hpp"
 #include "stock.hpp"
 #include "synth_controls.hpp"
+#include "drum_machines.hpp"
+#include "drum_storage.hpp"
 
 namespace opxy { namespace screen { namespace {
 
 using platform::stock;
 typedef u32 __attribute__((may_alias)) word;
 
-const u32 kPathLeaf = 0x840c4d74;  // vtable of a stock SVG path leaf
-const u32 kTextLeaf = 0x840c5158;  // vtable stored by the stock text constructor 0x8d600e20
+const u32 kPathLeaf = 0x840c1a40;  // vtable of a stock SVG path leaf
+const u32 kTextLeaf = 0x840c1ecc;  // vtable stored by the stock text constructor 0x8d5fecb0
 
 // A stock vector of records.
 struct Vector { u32 begin, end, capacity; };
@@ -39,7 +41,7 @@ static_assert(sizeof(Leaf) == 40 && __builtin_offsetof(PathNode, fill) == 112 &&
               __builtin_offsetof(PathNode, stroke) == 114 && __builtin_offsetof(PathNode, commands) == 120 &&
               sizeof(Command) == 32 && __builtin_offsetof(Command, type) == 24 &&
               __builtin_offsetof(Document, fills) == 100 && __builtin_offsetof(Document, strokes) == 132 &&
-              __builtin_offsetof(Parameters, begin) == 4, "Stock 1.2.1 screen layout");
+              __builtin_offsetof(Parameters, begin) == 4, "Stock 1.2.0 screen layout");
 
 // The 76-byte stock screen object. Adapter state follows it.
 struct Base {
@@ -53,27 +55,27 @@ struct Base {
     Leaf* titles[4];
     u32 stock56[5];
 };
-static_assert(sizeof(Base) == 76 && __builtin_offsetof(Base, values) == 24, "Stock 1.2.1 screen object");
+static_assert(sizeof(Base) == 76 && __builtin_offsetof(Base, values) == 24, "Stock 1.2.0 screen object");
 
 inline void base_construct(Base* o, u32 page, const char* asset) {
-    stock<void(Base*, u32, const char*)>(0x8d520844)(o, page, asset);
+    stock<void(Base*, u32, const char*)>(0x8d51fc7c)(o, page, asset);
 }
-inline void base_destroy(Base* o) { stock<void(Base*)>(0x8d51fdb8)(o); }
+inline void base_destroy(Base* o) { stock<void(Base*)>(0x8d51f1f0)(o); }
 // Binds child i of the template's `values` group to values[i] and of `titles` to titles[i].
-inline void bind_controls(Base* o) { stock<void(Leaf**, Base*, u32)>(0x8d521704)(o->values, o, 0); }
+inline void bind_controls(Base* o) { stock<void(Leaf**, Base*, u32)>(0x8d520b3c)(o->values, o, 0); }
 inline void* find(Base* o, const char* id) { return platform::find_node(o, id); }
-inline void draw(Base* o) { stock<void(Base*, u32)>(0x8d51fe1c)(o, 0); }
+inline void draw(Base* o) { stock<void(Base*, u32)>(0x8d51f254)(o, 0); }
 inline u32 selected_track() { return platform::selected_track(); }
-inline const Parameters* parameters(u32 track) { return stock<const Parameters*(u32)>(0x8d4d72a8)(track); }
+inline const Parameters* parameters(u32 track) { return stock<const Parameters*(u32)>(0x8d4d7c60)(track); }
 inline void update_controls(Base* o, u32 track, const Parameters* p) {
-    stock<void(Leaf**, u32, const Parameters*)>(0x8d5466ac)(o->values, track, p);
+    stock<void(Leaf**, u32, const Parameters*)>(0x8d545ae4)(o->values, track, p);
 }
-inline u32 note_serial(u32 track) { return stock<u32(u32)>(0x8d4d6c08)(track); }
-inline void set_matrix(Leaf* node, const i32* matrix) { stock<void(Leaf*, const i32*)>(0x8d5f06a6)(node, matrix); }
+inline u32 note_serial(u32 track) { return stock<u32(u32)>(0x8d4d75c0)(track); }
+inline void set_matrix(Leaf* node, const i32* matrix) { stock<void(Leaf*, const i32*)>(0x8d5ee7de)(node, matrix); }
 inline void set_text(Leaf* node, const char* text) { platform::set_text(node, text); }
-inline void set_fill(PathNode* node, u32 id) { stock<void(PathNode*, u32)>(0x8d5fa986)(node, id); }
-inline void set_stroke(PathNode* node, u32 id) { stock<void(PathNode*, u32)>(0x8d5fa966)(node, id); }
-inline void invalidate(PathNode* node) { stock<void(PathNode*)>(0x8d5fa9c4)(node); }
+inline void set_fill(PathNode* node, u32 id) { stock<void(PathNode*, u32)>(0x8d5f8abe)(node, id); }
+inline void set_stroke(PathNode* node, u32 id) { stock<void(PathNode*, u32)>(0x8d5f8a9e)(node, id); }
+inline void invalidate(PathNode* node) { stock<void(PathNode*)>(0x8d5f8afc)(node); }
 
 // Only stock leaves of the expected kind are ever passed to their setters.
 inline PathNode* path_node(void* node) {
@@ -138,6 +140,9 @@ struct Controls {
     u8 shown[page_controls];
     i32 values[page_controls];
     i32 slots[parameter_slots];
+    u32 model;   // a drum kit's selected key's model; 0 otherwise
+    u32 pad;     // a drum kit's selected canonical pad, 53..76; 0 otherwise
+    bool choosing;   // a drum kit's Shift page: the cells name the model and choke group
 };
 
 // Fills controls.slots and values from the stock parameter vector,
@@ -174,12 +179,64 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     const Parameters view = {0, static_cast<u32>(reinterpret_cast<platform::Address>(words)),
                              static_cast<u32>(reinterpret_cast<platform::Address>(words + parameter_slots))};
     controls.valid = read_shown(stock_vector, controls, words);
+    controls.choosing = false;
+    u8 model = 0, drum_values[8];
+    const platform::DrumMachine* drum = controls.track < 8
+        ? sdk_drum_machine(platform::track_engine(controls.track)) : nullptr;
+    if (drum && !sdk_drum_values(controls.track, &model, drum_values)) drum = nullptr;
+    controls.model = drum ? model : 0;
+    controls.pad = drum ? sdk_drum_selected_pad(controls.track) : 0;
+    if (drum) {
+        // Stock's vector holds the track parameters a held step locks: show
+        // the values that step plays, as the audio adapter decodes them.
+        i32 offsets[parameter_slots];
+        const bool whole = stock_vector && stock_vector->begin && !(stock_vector->begin & 3) &&
+                           stock_vector->end >= stock_vector->begin + 4 * parameter_slots;
+        for (u32 i = 0; i < parameter_slots; ++i)
+            offsets[i] = whole ? reinterpret_cast<const i32*>(stock_vector->begin)[i] : 0;
+        u8 stored[8];
+        for (u32 i = 0; i < 8; ++i) stored[i] = drum_values[i];
+        platform::drum_offset(stored, whole ? offsets : nullptr, drum_values);
+        controls.valid = true;
+        for (u32 i = 0; i < parameter_slots; ++i) {
+            controls.slots[i] = drum_values[i] == 127 ? 0x7fffffff : static_cast<i32>(static_cast<u32>(drum_values[i]) << 24);
+            words[i] = static_cast<u32>(controls.slots[i]);
+        }
+        for (u32 i = 0; i < page_controls; ++i) {
+            controls.values[i] = controls.slots[controls.shown[i]];
+            words[i] = static_cast<u32>(controls.values[i]);
+        }
+    }
     update_controls(o, controls.track, controls.valid ? &view : stock_vector);
     if (controls.valid) {
+        // While Shift is held, the first encoder chooses the key's model, as
+        // on stock Drumline, and the second its choke group; the third and
+        // fourth turn nothing, so their cells are blank.
+        const bool choosing = drum && platform::shift_held();
+        controls.choosing = choosing;
+        const char* const titles[page_controls] = {"MACHINE", "CHOKE", "", ""};
+        const char* const values[page_controls] = {
+            choosing ? drum->model_name(model) : "", choosing ? sdk_drum_choke(controls.track) : "", "", ""};
         for (u32 i = 0; i < page_controls; ++i) {
             char text[16];
             if (sdk_synth_value(controls.track, controls.shown[i], controls.values[i], text))
                 set_text(o->values[i], text);
+            if (!drum) continue;
+            if (choosing) {
+                set_text(o->titles[i], titles[i]);
+                set_text(o->values[i], values[i]);
+                continue;
+            }
+            const u32 slot = controls.shown[i];
+            set_text(o->titles[i], drum->label(model, slot));
+            u32 value = drum_values[slot];
+            char digits[4];
+            u32 n = 0;
+            if (value >= 100) { digits[n++] = '1'; value -= 100; }
+            if (n || value >= 10) digits[n++] = static_cast<char>('0' + value / 10);
+            digits[n++] = static_cast<char>('0' + value % 10);
+            digits[n] = 0;
+            set_text(o->values[i], drum->used(model, slot) ? digits : "");
         }
     }
     return true;
@@ -230,8 +287,8 @@ template <class Renderer> struct VTable {
     const char opxy_screen_asset[] = ASSET;                                                                \
     const opxy::screen::VTable<Renderer> opxy_screen_vtable = {                                            \
         &opxy::screen::destroy<Renderer::Object>, &opxy::screen::destroy<Renderer::Object>,                \
-        reinterpret_cast<const void*>(0x8d51fcd4), &Renderer::frame, &Renderer::init,                      \
-        reinterpret_cast<const void*>(0x8c0867f0)};                                                        \
+        reinterpret_cast<const void*>(0x8d51f10c), &Renderer::frame, &Renderer::init,                      \
+        reinterpret_cast<const void*>(0x8c087324)};                                                        \
     Renderer::Object* opxy_screen_ctor(Renderer::Object* o, opxy::u32 page) {                              \
         return opxy::screen::construct(o, page, PAGE_LIMIT, opxy_screen_asset, &opxy_screen_vtable);       \
     }                                                                                                      \

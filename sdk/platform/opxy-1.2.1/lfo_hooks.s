@@ -1,10 +1,10 @@
-/* 11a04260: engine-group modulation CALL.A 8d518ec4. The original C
+/* 11a03f20: engine-group modulation CALL.A 8d5182d4. The original C
  * arguments are project, track, slot and amount. R4 still holds the full
  * selector >> 8. Pass it as a fifth argument; all callee-saved registers
  * retain their stock values. Other destination groups keep their own calls.
  */
 .section .text
-.include "sdk/platform/opxy-1.2.1/hook.inc"
+.include "sdk/platform/opxy-1.2.0/hook.inc"
 .align 2
 .extern sdk_lfo_modulate
 .global sdk_lfo_audio
@@ -80,7 +80,7 @@ sdk_lfo_value_icon:
     RTS;
 .size sdk_lfo_value_icon, .-sdk_lfo_value_icon
 
-/* 8d53ffb0: group, raw slot and flag are the stock name arguments. P3
+/* 8d53f3e8: group, raw slot and flag are the stock name arguments. P3
  * holds the Element page; its +0x58 word is the knob-strip widget.
  */
 .extern sdk_lfo_element_label
@@ -97,7 +97,7 @@ sdk_lfo_element_name:
     RTS;
 .size sdk_lfo_element_name, .-sdk_lfo_element_name
 
-/* 8d53f888: Element initializes its strip before the first animation. The
+/* 8d53ecc0: Element initializes its strip before the first animation. The
  * preceding instruction already saved the full slot at [P5 + 0x18]. R7 is
  * sdk_lfo_range's ownership/group result. Map only the icon offset, then
  * replay the displaced fixed-point multiply; R1 and R0 remain its outputs.

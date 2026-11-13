@@ -1,5 +1,5 @@
 /* Stock initializer exits. The hooks JUMP here from inside stock functions
- * (0x8d506a02 in the synth initializer, 0x8d523dac and 0x8d523e08 in the
+ * (0x8d5063b2 in the synth initializer, 0x8d5231e4 and 0x8d523240 in the
  * screen factory), so these stubs run the generated C++ startup in the stock
  * frame and then perform the stock epilogue they replaced, returning 0.
  */
